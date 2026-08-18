@@ -1,7 +1,23 @@
 # tests/test_sampler.py
+import time
 from unittest.mock import patch
 
 from sysview.sampler import Sampler
+import sysview.sampler as sampler_module
+
+
+def _wait_until(predicate, timeout=2.0, interval=0.005):
+    """Poll `predicate` until it is truthy or `timeout` seconds elapse.
+
+    Used instead of a bare fixed sleep so thread-lifecycle tests are fast
+    and don't depend on guessing how long a background thread needs.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(interval)
+    return predicate()
 
 
 class FakeNetIO:
@@ -64,3 +80,81 @@ def test_missing_disk_io_counters_does_not_raise():
          patch("sysview.sampler.psutil.disk_io_counters", return_value=None):
         s.sample_once()
     assert s.snapshot()["disk_io"]["read_rate"] == 0.0
+
+
+def test_start_then_stop_runs_thread_and_updates_snapshot():
+    s = Sampler(interval=0.01)
+    try:
+        s.start()
+        assert _wait_until(lambda: s.snapshot()["timestamp"] != 0.0)
+        assert s._thread is not None
+        assert s._thread.is_alive()
+    finally:
+        s.stop()
+    assert s._thread is None
+
+
+def test_sample_once_failure_mid_loop_does_not_kill_thread():
+    s = Sampler(interval=0.01)
+    calls = {"n": 0}
+    real_net_io_counters = sampler_module.psutil.net_io_counters
+
+    def flaky_net_io_counters(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("boom")
+        return real_net_io_counters(*args, **kwargs)
+
+    try:
+        with patch.object(
+            sampler_module.psutil, "net_io_counters", side_effect=flaky_net_io_counters
+        ):
+            s.start()
+            # Wait until the flaky call has definitely fired at least once.
+            assert _wait_until(lambda: calls["n"] >= 2)
+            # Give the thread a chance to keep looping past the failure.
+            assert _wait_until(lambda: calls["n"] >= 3)
+        assert s._thread.is_alive()
+    finally:
+        s.stop()
+
+
+def test_priming_failure_does_not_prevent_loop():
+    s = Sampler(interval=0.01)
+    calls = {"n": 0}
+    real_cpu_percent = sampler_module.psutil.cpu_percent
+
+    def flaky_cpu_percent(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # The priming call in _run() is always the first call.
+            raise RuntimeError("boom")
+        return real_cpu_percent(*args, **kwargs)
+
+    try:
+        with patch.object(sampler_module.psutil, "cpu_percent", side_effect=flaky_cpu_percent):
+            s.start()
+            assert _wait_until(lambda: calls["n"] >= 2)
+        assert s._thread.is_alive()
+        assert _wait_until(lambda: s.snapshot()["timestamp"] != 0.0)
+    finally:
+        s.stop()
+
+
+def test_start_is_idempotent_and_stop_is_a_safe_no_op():
+    s = Sampler(interval=0.01)
+
+    # stop() before start() must not raise.
+    s.stop()
+    assert s._thread is None
+
+    s.start()
+    first_thread = s._thread
+    s.start()
+    assert s._thread is first_thread
+
+    s.stop()
+    assert s._thread is None
+    # stop() called twice must not raise.
+    s.stop()
+    assert s._thread is None

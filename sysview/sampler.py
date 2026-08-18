@@ -69,8 +69,12 @@ class Sampler:
 
     def _run(self):
         # Prime cpu_percent so the first real reading is a delta, not a
-        # since-boot average.
-        psutil.cpu_percent(percpu=True)
+        # since-boot average. Guarded the same as sample_once() below: a
+        # failure here must not prevent the thread from entering the loop.
+        try:
+            psutil.cpu_percent(percpu=True)
+        except Exception:
+            pass
         while not self._stop_event.is_set():
             try:
                 self.sample_once()
@@ -81,6 +85,14 @@ class Sampler:
             self._stop_event.wait(self.interval)
 
     def sample_once(self):
+        """Take one sample and store it as the latest snapshot.
+
+        Called by exactly one sampler thread (the loop in `_run`, or a test
+        driving it directly). Because there is never more than one caller in
+        flight, `_prev_net`, `_prev_disk`, and `_prev_time` are deliberately
+        not lock-protected — only `_snapshot` is, since `snapshot()` may be
+        read concurrently from other threads.
+        """
         now = time.monotonic()
         elapsed = 0.0 if self._prev_time is None else now - self._prev_time
 
