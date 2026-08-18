@@ -62,3 +62,7 @@ def test_unstattable_entry_is_listed_with_zero_size(tmp_path):
     os.symlink(tmp_path/"missing-target", tmp_path/"broken")
     e=list_directory(str(tmp_path))["entries"][0]
     assert e["name"]=="broken" and e["size"]==0
+
+def test_embedded_null_byte_returns_error_not_exception():
+    r=list_directory("/tmp\x00foo")
+    assert r["entries"]==[] and r["error"]!=""

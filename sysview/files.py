@@ -56,7 +56,7 @@ def list_directory(path):
     raw = path or "/"
     try:
         resolved = os.path.realpath(raw)
-    except OSError:
+    except (OSError, ValueError):
         return _error(raw, "Invalid path")
 
     if not os.path.exists(resolved):
