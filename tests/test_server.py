@@ -1,7 +1,9 @@
 # tests/test_server.py
+import io
+import json
 from unittest.mock import patch
 
-from sysview.server import route_get, route_post
+from sysview.server import Handler, route_get, route_post
 
 
 class FakeSampler:
@@ -13,6 +15,26 @@ class FakeSampler:
             "disk_io": {"read_rate": 0.0, "write_rate": 0.0},
             "timestamp": 1.0,
         }
+
+
+def make_handler(path):
+    """Build a Handler instance without opening a socket.
+
+    BaseHTTPRequestHandler normally does all of its work inside __init__
+    (reading the request line off a real socket), so to exercise do_GET /
+    do_POST in isolation we bypass __init__ entirely and wire up just the
+    attributes those methods and send_response()/end_headers() touch.
+    """
+    handler = object.__new__(Handler)
+    handler.sampler = FakeSampler()
+    handler.path = path
+    handler.rfile = io.BytesIO(b"")
+    handler.wfile = io.BytesIO()
+    handler.request_version = "HTTP/1.1"
+    handler.protocol_version = "HTTP/1.1"
+    handler.close_connection = True
+    handler.requestline = ""
+    return handler
 
 
 def test_resources_route_returns_200_and_payload():
@@ -90,3 +112,41 @@ def test_docker_action_failure_returns_500():
 def test_unknown_post_route_returns_404():
     status, body = route_post("/api/whatever")
     assert status == 404
+
+
+def test_get_handler_survives_collector_exception_with_clean_500():
+    handler = make_handler("/api/processes")
+    with patch("sysview.server.collect_processes",
+               side_effect=RuntimeError("collector exploded")):
+        handler.do_GET()
+    response = handler.wfile.getvalue()
+    status_line = response.split(b"\r\n", 1)[0]
+    assert b"500" in status_line
+    body = response.split(b"\r\n\r\n", 1)[1]
+    payload = json.loads(body)
+    assert "error" in payload
+
+
+def test_post_handler_survives_collector_exception_with_clean_500():
+    handler = make_handler("/api/docker/abc123/restart")
+    with patch("sysview.server.run_action",
+               side_effect=RuntimeError("collector exploded")):
+        handler.do_POST()
+    response = handler.wfile.getvalue()
+    status_line = response.split(b"\r\n", 1)[0]
+    assert b"500" in status_line
+    body = response.split(b"\r\n\r\n", 1)[1]
+    payload = json.loads(body)
+    assert "error" in payload
+
+
+def test_collector_exception_is_still_logged_to_stderr():
+    # log_message is overridden to silence normal per-request access logs, but
+    # the unexpected-exception path must not be silenced along with it: the
+    # operator is the one person who needs the traceback.
+    handler = make_handler("/api/processes")
+    with patch("sysview.server.collect_processes",
+               side_effect=RuntimeError("collector exploded")):
+        with patch("sys.stderr", new_callable=io.StringIO) as fake_stderr:
+            handler.do_GET()
+    assert "collector exploded" in fake_stderr.getvalue()

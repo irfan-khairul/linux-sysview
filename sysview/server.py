@@ -8,6 +8,8 @@ module never reads /proc or invokes docker directly; it only calls collectors.
 import json
 import os
 import posixpath
+import sys
+import traceback
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -69,12 +71,25 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _log_unhandled_exception(self):
+        # log_message() is silenced above to avoid flooding the console with
+        # routine per-request access logs, but an unexpected collector
+        # failure is exactly the kind of thing the operator needs to see, so
+        # print it directly to stderr rather than routing it through the
+        # silenced logger.
+        traceback.print_exc(file=sys.stderr)
+
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path.startswith("/api/"):
-            status, payload = route_get(
-                parsed.path, parse_qs(parsed.query), self.sampler
-            )
+            try:
+                status, payload = route_get(
+                    parsed.path, parse_qs(parsed.query), self.sampler
+                )
+            except Exception:
+                self._log_unhandled_exception()
+                self._send_json(500, {"error": "Internal server error"})
+                return
             self._send_json(status, payload)
             return
         if parsed.path == "/":
@@ -84,14 +99,23 @@ class Handler(SimpleHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         if parsed.path.startswith("/api/"):
-            status, payload = route_post(parsed.path)
+            try:
+                status, payload = route_post(parsed.path)
+            except Exception:
+                self._log_unhandled_exception()
+                self._send_json(500, {"error": "Internal server error"})
+                return
             self._send_json(status, payload)
             return
         self._send_json(404, {"ok": False, "error": "Not found"})
 
     def translate_path(self, path):
-        # Serve only from STATIC_DIR; SimpleHTTPRequestHandler already strips
-        # traversal, but this keeps the root explicit.
+        # Serve only from STATIC_DIR. Deliberately do NOT percent-decode the
+        # path (unlike the stdlib base class, which calls unquote()): this is
+        # what keeps encoded traversal sequences such as "%2e%2e%2f" inert as
+        # a literal filename instead of resolving to "..". The tradeoff is
+        # that a legitimately percent-encoded asset filename (e.g. a space
+        # encoded as "%20") would not resolve either.
         path = posixpath.normpath(urlparse(path).path)
         parts = [p for p in path.split("/") if p and p not in (os.curdir, os.pardir)]
         return os.path.join(STATIC_DIR, *parts)
