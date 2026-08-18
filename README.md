@@ -29,8 +29,8 @@ on the server; vanilla JavaScript in the browser.
 ## Install
 
 ```sh
-git clone <this-repo>
-cd linux-system-resource
+git clone https://github.com/irfan-khairul/linux-sysview.git
+cd linux-sysview
 pip install -r requirements.txt
 ```
 
