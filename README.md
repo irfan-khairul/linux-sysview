@@ -24,7 +24,8 @@ on the server; vanilla JavaScript in the browser.
 
 - Linux, Python 3.8 or newer
 - [`psutil`](https://pypi.org/project/psutil/)
-- Docker CLI on the host, if you want the Docker view
+- Docker CLI 17.06 or newer on the host, if you want the Docker view (it needs
+  `--format '{{json .}}'` support)
 
 ## Install
 
