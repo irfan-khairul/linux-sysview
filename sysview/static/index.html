@@ -1,0 +1,57 @@
+<!-- sysview/static/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sysview</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <h1>sysview</h1>
+  <nav>
+    <a href="#/resources" data-view="resources">System Resource</a>
+    <a href="#/processes" data-view="processes">System Processes</a>
+    <a href="#/docker" data-view="docker">Docker Processes</a>
+    <a href="#/files" data-view="files">File Explorer</a>
+  </nav>
+  <div class="controls">
+    <label>Refresh
+      <select id="interval">
+        <option value="1">1s</option>
+        <option value="2" selected>2s</option>
+        <option value="5">5s</option>
+        <option value="10">10s</option>
+        <option value="0">Paused</option>
+      </select>
+    </label>
+    <span id="status"></span>
+  </div>
+</header>
+
+<main>
+  <section id="view-resources" class="view"></section>
+  <section id="view-processes" class="view">
+    <div class="toolbar">
+      <input id="proc-filter" type="search" placeholder="Filter by name or PID">
+      <span id="proc-count"></span>
+    </div>
+    <div class="table-wrap"><table id="proc-table"></table></div>
+  </section>
+  <section id="view-docker" class="view">
+    <div class="table-wrap"><table id="docker-table"></table></div>
+  </section>
+  <section id="view-files" class="view">
+    <div class="toolbar">
+      <button id="files-back" type="button">Back</button>
+      <span id="files-path" class="breadcrumb"></span>
+    </div>
+    <div id="files-error" class="error"></div>
+    <div class="table-wrap"><table id="files-table"></table></div>
+  </section>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>

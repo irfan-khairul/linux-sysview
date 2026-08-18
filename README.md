@@ -7,7 +7,7 @@ same network.
 No build step, no `node_modules`, no framework. Python 3 plus one dependency
 on the server; vanilla JavaScript in the browser.
 
-> **Status:** design complete, implementation not yet started.
+> **Status:** working. Test suite passes on macOS; Linux verification pending.
 > See [the design spec](docs/superpowers/specs/2026-08-19-linux-system-resource-design.md).
 
 ## Features
@@ -24,7 +24,8 @@ on the server; vanilla JavaScript in the browser.
 
 - Linux, Python 3.8 or newer
 - [`psutil`](https://pypi.org/project/psutil/)
-- Docker CLI on the host, if you want the Docker view
+- Docker CLI 17.06 or newer on the host, if you want the Docker view (it needs
+  `--format '{{json .}}'` support)
 
 ## Install
 
@@ -50,7 +51,7 @@ Then open `http://<linux-box-ip>:8080` in your browser.
 |---|---|---|
 | `--host` | `0.0.0.0` | Address to bind |
 | `--port` | `8080` | Port to listen on |
-| `--interval` | `2` | Default UI refresh interval in seconds (adjustable in the UI) |
+| `--interval` | `2` | Initial UI refresh interval in seconds, applied when the page first loads; the user can still change it afterwards via the Refresh dropdown |
 
 The process table and file explorer show whatever the user running the server
 can see. Running as an unprivileged user is recommended and sufficient for
