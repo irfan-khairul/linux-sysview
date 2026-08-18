@@ -1,6 +1,7 @@
 import pytest
+from unittest import mock
 
-from sysview.__main__ import parse_args
+from sysview.__main__ import parse_args, main
 
 
 def test_defaults():
@@ -20,3 +21,19 @@ def test_overrides():
 def test_rejects_invalid_port():
     with pytest.raises(SystemExit):
         parse_args(["--port", "not-a-number"])
+
+
+def test_startup_failure_stops_sampler():
+    """Verify that non-OSError exceptions during startup still stop the sampler."""
+    with mock.patch("sysview.__main__.make_server") as mock_make_server:
+        with mock.patch("sysview.__main__.Sampler") as mock_sampler_class:
+            mock_sampler_instance = mock.Mock()
+            mock_sampler_class.return_value = mock_sampler_instance
+            mock_make_server.side_effect = TypeError("boom")
+
+            # main() should catch the TypeError and propagate it
+            with pytest.raises(TypeError, match="boom"):
+                main(["--port", "8097"])
+
+            # But the sampler should have been stopped
+            mock_sampler_instance.stop.assert_called_once()

@@ -30,23 +30,24 @@ def main(argv=None):
     sampler.start()
 
     try:
-        httpd = make_server(args.host, args.port, sampler)
-    except OSError as exc:
-        sampler.stop()
-        print("Cannot bind %s:%d — %s" % (args.host, args.port, exc), file=sys.stderr)
-        return 1
+        try:
+            httpd = make_server(args.host, args.port, sampler)
+        except OSError as exc:
+            print("Cannot bind %s:%d — %s" % (args.host, args.port, exc), file=sys.stderr)
+            return 1
 
-    print("sysview %s serving on http://%s:%d" % (__version__, args.host, args.port))
-    print("Press Ctrl+C to stop.")
-    try:
-        httpd.serve_forever()
-    except KeyboardInterrupt:
-        print("\nShutting down.")
+        print("sysview %s serving on http://%s:%d" % (__version__, args.host, args.port))
+        print("Press Ctrl+C to stop.")
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            print("\nShutting down.")
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+        return 0
     finally:
-        httpd.shutdown()
-        httpd.server_close()
         sampler.stop()
-    return 0
 
 
 if __name__ == "__main__":
