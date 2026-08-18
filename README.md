@@ -7,7 +7,7 @@ same network.
 No build step, no `node_modules`, no framework. Python 3 plus one dependency
 on the server; vanilla JavaScript in the browser.
 
-> **Status:** design complete, implementation not yet started.
+> **Status:** working. Tested on Linux; the test suite also runs on macOS.
 > See [the design spec](docs/superpowers/specs/2026-08-19-linux-system-resource-design.md).
 
 ## Features
