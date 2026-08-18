@@ -76,3 +76,29 @@ def test_unknown_endpoint_returns_404(server):
     with pytest.raises(urllib.error.HTTPError) as exc:
         urllib.request.urlopen(server + "/api/nope", timeout=5)
     assert exc.value.code == 404
+
+
+def test_config_endpoint_returns_default_interval(server):
+    status, body = _get_json(server + "/api/config")
+    assert status == 200
+    assert body["interval"] == 2.0
+
+
+@pytest.fixture
+def server_with_custom_interval():
+    sampler = Sampler(interval=0.05)
+    httpd = make_server("127.0.0.1", 0, sampler, ui_interval=10.0)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield "http://127.0.0.1:%d" % httpd.server_address[1]
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        sampler.stop()
+
+
+def test_config_endpoint_reflects_custom_interval(server_with_custom_interval):
+    status, body = _get_json(server_with_custom_interval + "/api/config")
+    assert status == 200
+    assert body["interval"] == 10.0

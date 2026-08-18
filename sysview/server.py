@@ -21,7 +21,10 @@ from .processes import collect_processes
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 
-def route_get(path, query, sampler):
+DEFAULT_UI_INTERVAL = 2.0
+
+
+def route_get(path, query, sampler, ui_interval=DEFAULT_UI_INTERVAL):
     """Return (status_code, payload_dict) for a GET API path."""
     if path == "/api/resources":
         return 200, collect_resources(sampler.snapshot())
@@ -34,6 +37,8 @@ def route_get(path, query, sampler):
     if path == "/api/files":
         requested = query.get("path", ["/"])[0] or "/"
         return 200, list_directory(requested)
+    if path == "/api/config":
+        return 200, {"interval": ui_interval}
     return 404, {"error": "Unknown endpoint: %s" % path}
 
 
@@ -54,6 +59,7 @@ def route_post(path):
 
 class Handler(SimpleHTTPRequestHandler):
     sampler = None
+    ui_interval = DEFAULT_UI_INTERVAL
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=STATIC_DIR, **kwargs)
@@ -84,7 +90,7 @@ class Handler(SimpleHTTPRequestHandler):
         if parsed.path.startswith("/api/"):
             try:
                 status, payload = route_get(
-                    parsed.path, parse_qs(parsed.query), self.sampler
+                    parsed.path, parse_qs(parsed.query), self.sampler, self.ui_interval
                 )
             except Exception:
                 self._log_unhandled_exception()
@@ -121,7 +127,7 @@ class Handler(SimpleHTTPRequestHandler):
         return os.path.join(STATIC_DIR, *parts)
 
 
-def make_server(host, port, sampler):
+def make_server(host, port, sampler, ui_interval=DEFAULT_UI_INTERVAL):
     """Build (but do not start) the HTTP server."""
-    handler = type("BoundHandler", (Handler,), {"sampler": sampler})
+    handler = type("BoundHandler", (Handler,), {"sampler": sampler, "ui_interval": ui_interval})
     return ThreadingHTTPServer((host, port), handler)

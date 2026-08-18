@@ -31,3 +31,21 @@ def test_app_js_defines_all_routes():
     js = _read("app.js")
     for route in ("#/resources", "#/processes", "#/docker", "#/files"):
         assert route in js, route
+
+
+def test_index_has_default_two_second_interval_option():
+    html = _read("index.html")
+    assert '<option value="2" selected>2s</option>' in html
+
+
+def test_app_js_fetches_config_on_startup():
+    js = _read("app.js")
+    assert "/api/config" in js
+    # The config fetch must happen before the first scheduling pass so the
+    # server-configured interval is in effect before the first poll starts.
+    assert "loadConfig()" in js
+
+
+def test_app_js_falls_back_when_config_fetch_fails():
+    js = _read("app.js")
+    assert "loadConfig" in js and ".catch(" in js

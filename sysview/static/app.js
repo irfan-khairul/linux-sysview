@@ -296,6 +296,38 @@ function onHashChange() {
   showView(ROUTES[window.location.hash] || 'resources');
 }
 
+// ---- startup config ----------------------------------------------------
+
+// Picks the <select> option numerically closest to a requested interval, so
+// a --interval value that isn't one of the fixed dropdown choices still ends
+// up on a sane, visible, selected option instead of an empty dropdown.
+function closestIntervalOption(value) {
+  var options = Array.prototype.map.call(
+    el('interval').options, function (o) { return parseFloat(o.value); }
+  );
+  var best = options[0];
+  options.forEach(function (o) {
+    if (Math.abs(o - value) < Math.abs(best - value)) { best = o; }
+  });
+  return best;
+}
+
+function applyInterval(value) {
+  var chosen = closestIntervalOption(value);
+  state.interval = chosen;
+  el('interval').value = String(chosen);
+}
+
+function loadConfig() {
+  return get('/api/config').then(function (cfg) {
+    applyInterval(cfg.interval);
+  }).catch(function () {
+    // Config fetch failed for any reason: fall back to the hardcoded default
+    // rather than leaving the page unpolled.
+    applyInterval(state.interval);
+  });
+}
+
 // ---- events ----------------------------------------------------------
 
 window.addEventListener('hashchange', onHashChange);
@@ -353,4 +385,4 @@ el('files-back').addEventListener('click', function () {
   refresh();
 });
 
-onHashChange();
+loadConfig().then(onHashChange);

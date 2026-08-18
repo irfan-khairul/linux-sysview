@@ -31,7 +31,7 @@ def main(argv=None):
 
     try:
         try:
-            httpd = make_server(args.host, args.port, sampler)
+            httpd = make_server(args.host, args.port, sampler, ui_interval=args.interval)
         except OSError as exc:
             print("Cannot bind %s:%d — %s" % (args.host, args.port, exc), file=sys.stderr)
             return 1

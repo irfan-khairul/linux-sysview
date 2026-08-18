@@ -23,6 +23,38 @@ def test_rejects_invalid_port():
         parse_args(["--port", "not-a-number"])
 
 
+def test_main_passes_interval_to_make_server():
+    """--interval must actually reach make_server, not just be parsed."""
+    with mock.patch("sysview.__main__.make_server") as mock_make_server:
+        with mock.patch("sysview.__main__.Sampler") as mock_sampler_class:
+            mock_sampler_instance = mock.Mock()
+            mock_sampler_class.return_value = mock_sampler_instance
+            mock_httpd = mock.Mock()
+            mock_httpd.serve_forever.side_effect = KeyboardInterrupt()
+            mock_make_server.return_value = mock_httpd
+
+            main(["--interval", "10"])
+
+    _, kwargs = mock_make_server.call_args
+    assert kwargs.get("ui_interval") == 10.0
+
+
+def test_main_defaults_interval_to_two_seconds():
+    """With no --interval flag, make_server must still receive the 2.0 default."""
+    with mock.patch("sysview.__main__.make_server") as mock_make_server:
+        with mock.patch("sysview.__main__.Sampler") as mock_sampler_class:
+            mock_sampler_instance = mock.Mock()
+            mock_sampler_class.return_value = mock_sampler_instance
+            mock_httpd = mock.Mock()
+            mock_httpd.serve_forever.side_effect = KeyboardInterrupt()
+            mock_make_server.return_value = mock_httpd
+
+            main([])
+
+    _, kwargs = mock_make_server.call_args
+    assert kwargs.get("ui_interval") == 2.0
+
+
 def test_startup_failure_stops_sampler():
     """Verify that non-OSError exceptions during startup still stop the sampler."""
     with mock.patch("sysview.__main__.make_server") as mock_make_server:

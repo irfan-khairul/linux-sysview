@@ -81,6 +81,19 @@ def test_unknown_api_route_returns_404():
     assert "error" in body
 
 
+def test_config_route_returns_configured_interval():
+    status, body = route_get("/api/config", {}, FakeSampler(), 10.0)
+    assert status == 200
+    assert body == {"interval": 10.0}
+
+
+def test_config_route_defaults_to_two_seconds():
+    # No ui_interval argument passed: must match the flag's default of 2.0.
+    status, body = route_get("/api/config", {}, FakeSampler())
+    assert status == 200
+    assert body == {"interval": 2.0}
+
+
 def test_docker_action_route_dispatches():
     with patch("sysview.server.run_action", return_value={"ok": True, "error": ""}) as m:
         status, body = route_post("/api/docker/abc123/restart")
