@@ -39,13 +39,22 @@ Everything else is installed in step 2 below.
 
 Run these on the Linux machine you want to monitor.
 
-**1. Make sure Python can create virtual environments.** Debian and Ubuntu
-split this into a separate package, and leaving it out is the most common
-first-run failure:
+These steps work on any Linux distribution. Only step 1 differs between them.
 
-```sh
-sudo apt install python3-venv          # Debian/Ubuntu only
-```
+**1. Make sure Python can create virtual environments.** Most distributions
+ship this with Python itself, but Debian and Ubuntu split it into a separate
+package, and leaving it out is the most common first-run failure:
+
+| Distribution | Command |
+|---|---|
+| Debian, Ubuntu, Mint, Pop!_OS, Raspberry Pi OS | `sudo apt install python3-venv` |
+| Fedora, RHEL, Rocky, Alma | already included — skip this step |
+| Arch, Manjaro | already included — skip this step |
+| openSUSE | `sudo zypper install python3-virtualenv` |
+| Alpine | `sudo apk add python3` |
+
+If you are not sure, skip ahead. Step 2 fails with `ensurepip is not available`
+if and only if you needed this.
 
 **2. Clone the repository and set it up:**
 
@@ -56,8 +65,10 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
-The virtualenv matters: recent Debian and Ubuntu refuse a plain
-`pip install` outside one (`error: externally-managed-environment`).
+The virtualenv is not optional on a current distribution: Debian, Ubuntu,
+Fedora, and Arch all refuse a plain `pip install` outside one, with
+`error: externally-managed-environment`. It also keeps this project's one
+dependency out of your system Python.
 
 **3. Start it:**
 
@@ -73,13 +84,14 @@ You should see `sysview 0.1.0 serving on http://0.0.0.0:8080`.
 http://<linux-box-ip>:8080
 ```
 
-Find the IP with `hostname -I` on the Linux box. Press Ctrl+C to stop.
+Find the IP with `hostname -I` on the Linux box, or `ip addr` if that flag is
+unavailable (BusyBox systems such as Alpine). Press Ctrl+C to stop.
 
 ### If something goes wrong
 
 | Symptom | Cause and fix |
 |---|---|
-| `ensurepip is not available` | Step 1 was skipped. Install `python3-venv`, delete the half-made `.venv`, and redo step 2. |
+| `ensurepip is not available` | Step 1 was skipped, or your distribution needs it. Install the package for your distribution from the table above, delete the half-made `.venv`, and redo step 2. |
 | `No such file or directory: 'requirements.txt'` | You are not in the repo directory, or the clone did not complete. |
 | `No interpreter at .../.venv/bin/python` | Step 2 was skipped or failed. |
 | `Cannot bind 0.0.0.0:8080 — Address already in use` | Something else has the port. Use `./run.sh --port 9000`. |
