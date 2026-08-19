@@ -484,6 +484,10 @@ function schedule() {
 // fight the user's clicks for no benefit.
 function isPolled(view) { return view !== 'files'; }
 
+function setLoading(on) {
+  document.body.classList.toggle('loading', !!on);
+}
+
 function showView(name) {
   state.view = name;
   VIEWS.forEach(function (v) {
@@ -494,7 +498,8 @@ function showView(name) {
     a.classList.toggle('active', a.getAttribute('data-view') === name);
   });
   setStatus('');
-  refresh();
+  setLoading(true);
+  refresh().then(function () { setLoading(false); });
   if (isPolled(name)) { schedule(); }
   else if (state.timer) { clearInterval(state.timer); state.timer = null; }
 }
