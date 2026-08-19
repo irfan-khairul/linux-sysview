@@ -16,7 +16,7 @@ from urllib.parse import parse_qs, urlparse
 from .docker import VALID_ACTIONS, collect_containers, is_valid_container_id, run_action
 from .files import list_directory
 from .metrics import collect_resources
-from .processes import collect_processes
+from .processes import DEFAULT_SORT, collect_processes
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
@@ -29,7 +29,13 @@ def route_get(path, query, sampler, ui_interval=DEFAULT_UI_INTERVAL):
     if path == "/api/resources":
         return 200, collect_resources(sampler.snapshot())
     if path == "/api/processes":
-        return 200, collect_processes()
+        # Sorting and filtering are server-side so they apply to every process,
+        # not just the truncated slice the browser receives.
+        return 200, collect_processes(
+            sort=query.get("sort", [DEFAULT_SORT])[0],
+            desc=query.get("desc", ["1"])[0] != "0",
+            query=query.get("q", [""])[0],
+        )
     if path == "/api/docker":
         # An unreachable Docker daemon is a normal state reported in the body,
         # not an HTTP error.

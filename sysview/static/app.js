@@ -139,36 +139,22 @@ var PROC_COLS = [
   { key: 'cpu_percent', label: 'CPU%', num: true },
   { key: 'memory_percent', label: 'MEM%', num: true },
   { key: 'rss', label: 'RSS', num: true, fmt: bytes },
+  { key: 'threads', label: 'Thr', num: true },
   { key: 'status', label: 'State' },
   { key: 'name', label: 'Name' },
   { key: 'cmdline', label: 'Command', cls: 'cmd' }
 ];
 
 function renderProcesses(d) {
+  // Sorting and filtering are done by the server across ALL processes; doing
+  // them here would only ever see the truncated slice, so sorting by memory
+  // would show the largest memory user among the top CPU consumers rather
+  // than the largest overall.
   var rows = d.processes || [];
-  var q = state.procFilter.trim().toLowerCase();
-  if (q) {
-    rows = rows.filter(function (p) {
-      return String(p.pid).indexOf(q) === 0 ||
-        (p.name || '').toLowerCase().indexOf(q) !== -1;
-    });
-  }
-
   var s = state.procSort;
-  rows = rows.slice().sort(function (a, b) {
-    var x = a[s.key];
-    var y = b[s.key];
-    if (typeof x === 'string' || typeof y === 'string') {
-      x = String(x).toLowerCase();
-      y = String(y).toLowerCase();
-    }
-    if (x < y) { return s.desc ? 1 : -1; }
-    if (x > y) { return s.desc ? -1 : 1; }
-    return 0;
-  });
 
   var head = PROC_COLS.map(function (c) {
-    var mark = s.key === c.key ? (s.desc ? ' ▾' : ' ▴') : '';
+    var mark = s.key === c.key ? (s.desc ? ' \u25be' : ' \u25b4') : '';
     return '<th data-key="' + c.key + '"' + (c.num ? ' class="num"' : '') + '>' +
       c.label + mark + '</th>';
   }).join('');
@@ -181,9 +167,15 @@ function renderProcesses(d) {
     }).join('') + '</tr>';
   }).join('');
 
-  el('proc-count').textContent = rows.length + ' shown of ' + d.total + ' total';
+  var matched = d.matched === undefined ? rows.length : d.matched;
+  var label = rows.length + ' shown of ' + matched;
+  if (matched !== d.total) { label += ' matching (' + d.total + ' total)'; }
+  else { label += ' total'; }
+  el('proc-count').textContent = label;
+
   el('proc-table').innerHTML = '<thead><tr>' + head + '</tr></thead><tbody>' +
-    (body || '<tr><td colspan="8" class="empty">No processes match</td></tr>') +
+    (body || '<tr><td colspan="' + PROC_COLS.length +
+      '" class="empty">No processes match</td></tr>') +
     '</tbody>';
 }
 
@@ -253,7 +245,13 @@ function renderFiles(d) {
 
 var LOADERS = {
   resources: function () { return get('/api/resources').then(renderResources); },
-  processes: function () { return get('/api/processes').then(renderProcesses); },
+  processes: function () {
+    var s = state.procSort;
+    var url = '/api/processes?sort=' + encodeURIComponent(s.key) +
+      '&desc=' + (s.desc ? '1' : '0') +
+      '&q=' + encodeURIComponent(state.procFilter.trim());
+    return get(url).then(renderProcesses);
+  },
   docker: function () { return get('/api/docker').then(renderDocker); },
   files: function () {
     return get('/api/files?path=' + encodeURIComponent(state.filesPath)).then(renderFiles);
