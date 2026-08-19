@@ -18,7 +18,8 @@ var state = {
   procSort: { key: 'cpu_percent', desc: true },
   procFilter: '',
   history: [],
-  netOpen: false
+  netOpen: false,
+  dockerOpen: {}
 };
 
 // ---- helpers ----------------------------------------------------------
@@ -242,38 +243,107 @@ function renderProcesses(d) {
     '</tbody>';
 }
 
+// Compose stamps a project label on every container it creates, so a stack
+// like supabase (a dozen containers) collapses into one row you can act on as
+// a unit — the same grouping Docker Desktop shows.
+function dockerGroups(containers) {
+  var order = [];
+  var byProject = {};
+  containers.forEach(function (c) {
+    var key = c.project || '';
+    if (!byProject[key]) {
+      byProject[key] = [];
+      order.push(key);
+    }
+    byProject[key].push(c);
+  });
+  // Real projects first, then loose `docker run` containers.
+  order.sort(function (a, b) {
+    if (!a !== !b) { return a ? -1 : 1; }
+    return a.localeCompare(b);
+  });
+  return order.map(function (key) {
+    return { project: key, containers: byProject[key] };
+  });
+}
+
+function sumPercent(containers) {
+  var total = containers.reduce(function (acc, c) {
+    var v = parseFloat(String(c.cpu_percent).replace('%', ''));
+    return acc + (isFinite(v) ? v : 0);
+  }, 0);
+  return total.toFixed(2) + '%';
+}
+
+function containerRow(c) {
+  var running = c.state === 'running';
+  var btn = function (action, label) {
+    return '<button type="button" data-id="' + esc(c.id) + '" data-action="' +
+      action + '">' + label + '</button>';
+  };
+  var actions = running
+    ? btn('stop', 'Stop') + ' ' + btn('restart', 'Restart')
+    : btn('start', 'Start');
+  // Within a group the service name is the useful label; the container name
+  // just repeats the project prefix.
+  var label = c.service || c.name;
+  return '<tr class="' + (running ? '' : 'stopped') + '">' +
+    '<td class="c-name">' + esc(label) + '</td>' +
+    '<td>' + esc(c.image) + '</td>' +
+    '<td>' + esc(c.state) + '</td>' +
+    '<td>' + esc(c.status) + '</td>' +
+    '<td class="num">' + esc(c.cpu_percent) + '</td>' +
+    '<td class="num">' + esc(c.memory) + '</td>' +
+    '<td>' + esc(c.ports) + '</td>' +
+    '<td>' + actions + '</td></tr>';
+}
+
+function groupBlock(g) {
+  var running = g.containers.filter(function (c) { return c.state === 'running'; });
+  var name = g.project || 'Ungrouped';
+  var ids = g.containers.map(function (c) { return c.id; }).join(' ');
+  var open = state.dockerOpen[name] ? ' open' : '';
+
+  var groupBtn = function (action, label) {
+    return '<button type="button" class="group-btn" data-group-ids="' + esc(ids) +
+      '" data-action="' + action + '">' + label + '</button>';
+  };
+  // A group is actionable as a whole: start what is stopped, stop what runs.
+  var actions = g.project
+    ? (running.length ? groupBtn('stop', 'Stop all') + ' ' + groupBtn('restart', 'Restart all') : '') +
+      (running.length < g.containers.length ? ' ' + groupBtn('start', 'Start all') : '')
+    : '';
+
+  var rows = g.containers.map(containerRow).join('');
+
+  return '<details class="dgroup"' + open + ' data-group="' + esc(name) + '">' +
+    '<summary>' +
+      '<span class="dgroup-name">' + esc(name) + '</span>' +
+      '<span class="dgroup-meta">' + running.length + ' / ' + g.containers.length +
+        ' running &middot; ' + sumPercent(running) + ' CPU</span>' +
+      '<span class="dgroup-actions">' + actions + '</span>' +
+    '</summary>' +
+    '<div class="table-wrap"><table><thead><tr>' +
+      '<th>Service</th><th>Image</th><th>State</th><th>Status</th>' +
+      '<th class="num">CPU</th><th class="num">Memory</th><th>Ports</th><th>Actions</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
+    '</details>';
+}
+
 function renderDocker(d) {
+  var host = el('docker-view');
   if (!d.available) {
-    el('docker-table').innerHTML =
-      '<tbody><tr><td class="empty">Docker not available &mdash; ' +
-      esc(d.error) + '</td></tr></tbody>';
+    host.innerHTML = '<div class="empty">Docker not available &mdash; ' +
+      esc(d.error) + '</div>';
     return;
   }
   if (!d.containers.length) {
-    el('docker-table').innerHTML =
-      '<tbody><tr><td class="empty">No containers</td></tr></tbody>';
+    host.innerHTML = '<div class="empty">No containers. Note that ' +
+      '<code>docker compose down</code> removes containers entirely, so a ' +
+      'project torn down that way has nothing left to show.</div>';
     return;
   }
-
-  var head = '<thead><tr><th>Name</th><th>Image</th><th>State</th><th>Status</th>' +
-    '<th class="num">CPU</th><th class="num">Memory</th><th>Ports</th><th>Actions</th></tr></thead>';
-
-  var body = d.containers.map(function (c) {
-    var running = c.state === 'running';
-    var btn = function (action, label) {
-      return '<button type="button" data-id="' + esc(c.id) + '" data-action="' +
-        action + '">' + label + '</button>';
-    };
-    var actions = running
-      ? btn('stop', 'Stop') + ' ' + btn('restart', 'Restart')
-      : btn('start', 'Start');
-    return '<tr><td>' + esc(c.name) + '</td><td>' + esc(c.image) + '</td><td>' +
-      esc(c.state) + '</td><td>' + esc(c.status) + '</td><td class="num">' +
-      esc(c.cpu_percent) + '</td><td class="num">' + esc(c.memory) + '</td><td>' +
-      esc(c.ports) + '</td><td>' + actions + '</td></tr>';
-  }).join('');
-
-  el('docker-table').innerHTML = head + '<tbody>' + body + '</tbody>';
+  host.innerHTML = dockerGroups(d.containers).map(groupBlock).join('');
 }
 
 function renderFiles(d) {
@@ -431,14 +501,35 @@ el('proc-table').addEventListener('click', function (e) {
   refresh();
 });
 
-el('docker-table').addEventListener('click', function (e) {
+el('docker-view').addEventListener('click', function (e) {
   var btn = e.target.closest('button');
   if (!btn) { return; }
-  var buttons = el('docker-table').querySelectorAll('button');
+  // Buttons live inside <summary>; without this the click would also toggle
+  // the group open or shut.
+  e.preventDefault();
+  e.stopPropagation();
+
+  var host = el('docker-view');
+  var buttons = host.querySelectorAll('button');
   Array.prototype.forEach.call(buttons, function (b) { b.disabled = true; });
-  setStatus(btn.dataset.action + 'ing...');
-  fetch('/api/docker/' + encodeURIComponent(btn.dataset.id) + '/' + btn.dataset.action,
-        { method: 'POST' })
+
+  var group = btn.dataset.groupIds;
+  var request;
+  if (group) {
+    var ids = group.split(' ').filter(Boolean);
+    setStatus(btn.dataset.action + 'ing ' + ids.length + ' containers...');
+    request = fetch('/api/docker/group/' + btn.dataset.action, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: ids })
+    });
+  } else {
+    setStatus(btn.dataset.action + 'ing...');
+    request = fetch('/api/docker/' + encodeURIComponent(btn.dataset.id) + '/' +
+      btn.dataset.action, { method: 'POST' });
+  }
+
+  request
     .then(function (r) { return r.json(); })
     .then(function (res) {
       setStatus(res.ok ? '' : res.error);
@@ -446,10 +537,17 @@ el('docker-table').addEventListener('click', function (e) {
     })
     .catch(function (err) { setStatus(err.message); })
     .then(function () {
-      var again = el('docker-table').querySelectorAll('button');
+      var again = el('docker-view').querySelectorAll('button');
       Array.prototype.forEach.call(again, function (b) { b.disabled = false; });
     });
 });
+
+// Remember which groups are expanded, or every poll would collapse them.
+el('docker-view').addEventListener('toggle', function (e) {
+  if (e.target.classList.contains('dgroup')) {
+    state.dockerOpen[e.target.dataset.group] = e.target.open;
+  }
+}, true);
 
 el('files-table').addEventListener('click', function (e) {
   var tr = e.target.closest('tr');

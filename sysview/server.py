@@ -13,7 +13,13 @@ import traceback
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from .docker import VALID_ACTIONS, collect_containers, is_valid_container_id, run_action
+from .docker import (
+    VALID_ACTIONS,
+    collect_containers,
+    is_valid_container_id,
+    run_action,
+    run_group_action,
+)
 from .files import list_directory
 from .metrics import collect_resources
 from .processes import DEFAULT_SORT, collect_processes
@@ -50,9 +56,19 @@ def route_get(path, query, sampler, ui_interval=DEFAULT_UI_INTERVAL):
     return 404, {"error": "Unknown endpoint: %s" % path}
 
 
-def route_post(path):
+def route_post(path, body=None):
     """Return (status_code, payload_dict) for a POST API path."""
     parts = [p for p in path.strip("/").split("/") if p]
+    # Expected shape: api / docker / group / <action>, with the container ids
+    # in the request body. They travel in the body rather than the URL because
+    # a Compose project can hold a dozen containers.
+    if len(parts) == 4 and parts[:3] == ["api", "docker", "group"]:
+        action = parts[3]
+        ids = (body or {}).get("ids")
+        if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
+            return 400, {"ok": False, "error": "Expected a list of container ids"}
+        result = run_group_action(ids, action)
+        return (200 if result["ok"] else 500), result
     # Expected shape: api / docker / <id> / <action>
     if len(parts) == 4 and parts[0] == "api" and parts[1] == "docker":
         container_id, action = parts[2], parts[3]
@@ -85,6 +101,25 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _read_json_body(self):
+        """Parse a JSON request body, or return None when there is none.
+
+        Raises ValueError on malformed JSON so the caller can answer 400
+        rather than 500.
+        """
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return None
+        if length <= 0:
+            return None
+        # Bound the read: this endpoint takes a short list of container ids,
+        # and an unauthenticated client should not be able to make the server
+        # buffer an arbitrary amount.
+        if length > 64 * 1024:
+            raise ValueError("body too large")
+        return json.loads(self.rfile.read(length).decode("utf-8"))
+
     def _log_unhandled_exception(self):
         # log_message() is silenced above to avoid flooding the console with
         # routine per-request access logs, but an unexpected collector
@@ -114,7 +149,10 @@ class Handler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path.startswith("/api/"):
             try:
-                status, payload = route_post(parsed.path)
+                status, payload = route_post(parsed.path, self._read_json_body())
+            except ValueError:
+                self._send_json(400, {"ok": False, "error": "Malformed JSON body"})
+                return
             except Exception:
                 self._log_unhandled_exception()
                 self._send_json(500, {"error": "Internal server error"})

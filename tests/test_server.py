@@ -173,3 +173,22 @@ def test_history_route_returns_points():
     status, body = route_get("/api/history", {}, HistSampler())
     assert status == 200
     assert body["points"][0]["cpu"] == 10.0
+
+
+def test_group_route_dispatches_ids_from_body():
+    with patch("sysview.server.run_group_action",
+               return_value={"ok": True, "error": "", "results": []}) as m:
+        status, body = route_post("/api/docker/group/stop", {"ids": ["a", "b"]})
+    assert status == 200
+    m.assert_called_once_with(["a", "b"], "stop")
+
+
+def test_group_route_rejects_a_non_list_body():
+    status, body = route_post("/api/docker/group/stop", {"ids": "not-a-list"})
+    assert status == 400
+    assert body["ok"] is False
+
+
+def test_group_route_rejects_a_missing_body():
+    status, body = route_post("/api/docker/group/stop", None)
+    assert status == 400

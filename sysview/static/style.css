@@ -197,3 +197,49 @@ tr.file td:first-child { color: var(--text); }
 
 /* Idle interfaces stay visible but recede, so an active one stands out. */
 .iface-details .metric.idle { opacity: 0.45; }
+
+/* Docker groups: one Compose project per collapsible block. */
+.dgroup {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+
+.dgroup summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.dgroup summary::-webkit-details-marker { display: none; }
+
+.dgroup summary::before {
+  content: '\25b8';
+  color: var(--muted);
+  transition: transform 0.15s;
+}
+
+.dgroup[open] summary::before { transform: rotate(90deg); }
+
+.dgroup-name { color: var(--accent); font-weight: bold; }
+.dgroup-meta { color: var(--muted); font-size: 12px; }
+.dgroup-actions { margin-left: auto; display: flex; gap: 6px; }
+
+.dgroup .table-wrap {
+  border: none;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+}
+
+/* Service name within a group, indented to read as a child of the header. */
+.dgroup td.c-name { padding-left: 24px; }
+
+/* Stopped containers recede so a running stack reads at a glance. */
+.dgroup tr.stopped td { opacity: 0.55; }
+
+.group-btn { border-color: var(--accent); }

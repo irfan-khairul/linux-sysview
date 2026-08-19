@@ -53,6 +53,32 @@ def _parse_json_lines(text):
     return rows
 
 
+# Compose stamps these onto every container it creates, so a project's
+# containers can be grouped long after the compose file itself is gone.
+# Source: https://github.com/docker/compose/blob/main/pkg/api/labels.go
+_PROJECT_LABEL = "com.docker.compose.project"
+_SERVICE_LABEL = "com.docker.compose.service"
+_WORKING_DIR_LABEL = "com.docker.compose.project.working_dir"
+
+
+def _parse_labels(raw):
+    """Parse docker's Labels field.
+
+    `docker ps --format '{{json .}}'` renders labels as a single
+    comma-separated "key=value" string, not as a JSON object, so it needs
+    splitting by hand. A value legitimately containing a comma cannot be
+    recovered from this format; the compose keys we care about never do.
+    """
+    labels = {}
+    for part in (raw or "").split(","):
+        part = part.strip()
+        if not part or "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        labels[key.strip()] = value.strip()
+    return labels
+
+
 def _unavailable(message):
     return {"available": False, "containers": [], "error": message}
 
@@ -85,6 +111,7 @@ def collect_containers():
     for row in _parse_json_lines(ps.stdout):
         cid = row.get("ID", "")
         stat = stats_by_id.get(cid, {})
+        labels = _parse_labels(row.get("Labels", ""))
         containers.append({
             "id": cid,
             "name": row.get("Names", ""),
@@ -95,9 +122,54 @@ def collect_containers():
             "cpu_percent": stat.get("CPUPerc", "-"),
             "memory": stat.get("MemUsage", "-"),
             "memory_percent": stat.get("MemPerc", "-"),
+            # Empty for containers started with plain `docker run`, which the
+            # UI groups separately.
+            "project": labels.get(_PROJECT_LABEL, ""),
+            "service": labels.get(_SERVICE_LABEL, ""),
+            # The path the project was created from. It may no longer exist —
+            # deleting the directory does not affect the containers.
+            "working_dir": labels.get(_WORKING_DIR_LABEL, ""),
         })
 
     return {"available": True, "containers": containers, "error": ""}
+
+
+def run_group_action(container_ids, action):
+    """Apply an action to every container in a Compose project.
+
+    Each container is acted on individually rather than shelling out to
+    `docker compose`, which would need the compose file to still exist on
+    disk — deleting a project directory leaves its containers running, and
+    this view should keep working for them.
+
+    Every id is validated before anything runs, so a malformed one fails the
+    whole request instead of leaving a group half-actioned.
+    """
+    if action not in VALID_ACTIONS:
+        return {"ok": False, "error": "Unsupported action: %s" % action, "results": []}
+    if not container_ids:
+        return {"ok": False, "error": "No containers given", "results": []}
+    for cid in container_ids:
+        if not is_valid_container_id(cid):
+            return {"ok": False, "error": "Invalid container id", "results": []}
+
+    results = []
+    for cid in container_ids:
+        outcome = run_action(cid, action)
+        results.append({"id": cid, "ok": outcome["ok"], "error": outcome["error"]})
+
+    failed = [r for r in results if not r["ok"]]
+    if not failed:
+        return {"ok": True, "error": "", "results": results}
+    # Report how much of the group succeeded; a partial failure is normal when
+    # one container of a stack is already in the target state.
+    return {
+        "ok": False,
+        "error": "%d of %d failed: %s" % (
+            len(failed), len(results), failed[0]["error"]
+        ),
+        "results": results,
+    }
 
 
 def run_action(container_id, action):
