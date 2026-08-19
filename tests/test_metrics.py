@@ -87,16 +87,17 @@ DELL_FANS = {"dell_smm": [sfan("Processor Fan", 2200), sfan("", 2200),
                           sfan("", 2200), sfan("", 2200)]}
 
 
-def test_temperatures_sorted_hottest_first_with_thresholds():
+def test_temperatures_sorted_stably_by_name_not_by_value():
+    """Sorting by value would make rows swap places as readings drift."""
     with patch.object(psutil, "sensors_temperatures", create=True,
                       return_value=DELL_TEMPS):
         temps = collect_resources(SNAPSHOT)["temperatures"]
 
-    assert [t["current"] for t in temps] == sorted(
-        [t["current"] for t in temps], reverse=True)
-    hottest = temps[0]
-    assert hottest["current"] == 54.0
-    assert hottest["critical"] == 105.0
+    order = [(t["chip"], t["label"]) for t in temps]
+    assert order == sorted(order, key=lambda p: (p[0].lower(), p[1].lower()))
+    # Thresholds survive for the sensors that publish them.
+    core = next(t for t in temps if t["label"] == "Core 0")
+    assert core["critical"] == 105.0
     # An unlabelled sensor falls back to its chip name.
     assert any(t["label"] == "acpitz" for t in temps)
 

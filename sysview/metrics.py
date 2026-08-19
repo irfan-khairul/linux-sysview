@@ -107,7 +107,12 @@ _MAX_PLAUSIBLE_TEMP = 150.0
 
 
 def _temperatures():
-    """Return per-sensor temperatures, hottest first."""
+    """Return per-sensor temperatures in a stable order.
+
+    Sorted by chip then label rather than by value: sorting by temperature
+    makes rows swap places as readings drift, so the entry you were looking at
+    moves out from under you.
+    """
     reader = getattr(psutil, "sensors_temperatures", None)
     if reader is None:
         return []
@@ -135,7 +140,7 @@ def _temperatures():
                 "critical": getattr(entry, "critical", None),
             })
 
-    readings.sort(key=lambda r: r["current"], reverse=True)
+    readings.sort(key=lambda r: (r["chip"].lower(), r["label"].lower()))
     return readings
 
 
