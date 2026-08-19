@@ -40,12 +40,25 @@ pip install -r requirements.txt
 Run on the Linux machine you want to monitor:
 
 ```sh
+./run.sh                               # easiest: binds 0.0.0.0:8090
+./run.sh --port 9000                   # any flag below is passed through
+PORT=9000 ./run.sh                     # or set the port via the environment
+```
+
+`run.sh` just calls this repo's `.venv` interpreter, so you do not have to
+activate the virtualenv or remember the module path. To use a different
+interpreter, set `SYSVIEW_PYTHON`.
+
+Or invoke the module directly:
+
+```sh
 python -m sysview                      # binds 0.0.0.0:8080
 python -m sysview --port 9000          # different port
 python -m sysview --host 127.0.0.1     # localhost only (see Security)
 ```
 
-Then open `http://<linux-box-ip>:8080` in your browser.
+Then open `http://<linux-box-ip>:8090` in your browser (or `:8080` if you ran
+the module directly without a `--port`).
 
 | Flag | Default | Description |
 |---|---|---|
