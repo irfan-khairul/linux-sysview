@@ -90,4 +90,114 @@ def collect_resources(snapshot):
         "network": snapshot.get("net", {}),
         "uptime_seconds": round(time.time() - psutil.boot_time(), 1),
         "load_average": _load_average(),
+        "temperatures": _temperatures(),
+        "fans": _fans(),
+        "battery": _battery(),
     }
+
+# Sensor readings are Linux-only (psutil has no sensors_* on macOS) and
+# hardware-dependent, so every reader here degrades to an empty list rather
+# than raising when a machine cannot report.
+
+# A sensor that is present but unwired reports an implausible value: a Dell
+# Inspiron with no discrete GPU reports its "GPU" at 2 degrees. Anything
+# outside this range is a wiring artefact, not a reading.
+_MIN_PLAUSIBLE_TEMP = 5.0
+_MAX_PLAUSIBLE_TEMP = 150.0
+
+
+def _temperatures():
+    """Return per-sensor temperatures, hottest first."""
+    reader = getattr(psutil, "sensors_temperatures", None)
+    if reader is None:
+        return []
+    try:
+        groups = reader() or {}
+    except (OSError, AttributeError, NotImplementedError):
+        return []
+
+    readings = []
+    for chip, entries in groups.items():
+        for entry in entries:
+            current = getattr(entry, "current", None)
+            if current is None:
+                continue
+            if not (_MIN_PLAUSIBLE_TEMP <= current <= _MAX_PLAUSIBLE_TEMP):
+                continue
+            readings.append({
+                "chip": chip,
+                # Some sensors report no label at all; the chip name is the
+                # only thing left to call them.
+                "label": (getattr(entry, "label", "") or chip),
+                "current": round(current, 1),
+                # Only coretemp tends to publish these; the rest give None.
+                "high": getattr(entry, "high", None),
+                "critical": getattr(entry, "critical", None),
+            })
+
+    readings.sort(key=lambda r: r["current"], reverse=True)
+    return readings
+
+
+def _fans():
+    """Return fan speeds in RPM, de-duplicated.
+
+    dell_smm reports one physical fan four times, once labelled and three
+    times blank, so identical speeds collapse into a single entry.
+    """
+    reader = getattr(psutil, "sensors_fans", None)
+    if reader is None:
+        return []
+    try:
+        groups = reader() or {}
+    except (OSError, AttributeError, NotImplementedError):
+        return []
+
+    fans = []
+    seen = set()
+    for chip, entries in groups.items():
+        for index, entry in enumerate(entries):
+            rpm = getattr(entry, "current", None)
+            if rpm is None:
+                continue
+            # Dedupe on chip and speed, deliberately ignoring the label:
+            # dell_smm reports one physical fan four times at an identical
+            # RPM, once labelled and three times blank. Including the label
+            # in the key would keep a spurious second entry.
+            key = (chip, rpm)
+            if key in seen:
+                continue
+            seen.add(key)
+            label = getattr(entry, "label", "") or ""
+            fans.append({
+                "chip": chip,
+                "label": label or ("Fan %d" % (index + 1)),
+                "rpm": int(rpm),
+            })
+    return fans
+
+
+def _battery():
+    """Return battery state, or None on a desktop."""
+    reader = getattr(psutil, "sensors_battery", None)
+    if reader is None:
+        return None
+    try:
+        battery = reader()
+    except (OSError, AttributeError, NotImplementedError):
+        return None
+    if battery is None:
+        return None
+
+    secsleft = getattr(battery, "secsleft", None)
+    # psutil uses sentinel constants for "unlimited" and "unknown"; neither is
+    # a real number of seconds.
+    if not isinstance(secsleft, int) or secsleft < 0:
+        secsleft = None
+
+    return {
+        "percent": round(battery.percent, 1),
+        "plugged": bool(battery.power_plugged),
+        "secsleft": secsleft,
+    }
+

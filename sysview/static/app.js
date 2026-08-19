@@ -180,6 +180,41 @@ function renderResources(d) {
       rate(n.sent_rate) + ' &darr; ' + rate(n.recv_rate) + '</span></div>';
   }).join('') || '<div class="empty">No interfaces</div>';
 
+  // Sensors are hardware-dependent: a desktop reports no battery, many
+  // machines report no fans, and a VM may report nothing at all. The card is
+  // omitted entirely rather than shown empty.
+  var temps = d.temperatures || [];
+  var fans = d.fans || [];
+  var batt = d.battery;
+
+  if (temps.length || fans.length || batt) {
+    var sensorRows = temps.map(function (t) {
+      // Colour against the sensor's own critical threshold where it publishes
+      // one; otherwise fall back to values that are hot for any silicon.
+      var crit = t.critical || 100;
+      var warn = t.high || (crit * 0.8);
+      var cls = t.current >= crit ? ' crit' : (t.current >= warn ? ' warn' : '');
+      return '<div class="metric"><span class="label">' + esc(t.label) +
+        ' <small>' + esc(t.chip) + '</small></span>' +
+        '<span class="temp' + cls + '">' + t.current.toFixed(0) + '\u00b0C</span></div>';
+    }).join('');
+
+    var fanRows = fans.map(function (f) {
+      return '<div class="metric"><span class="label">' + esc(f.label) +
+        '</span><span>' + f.rpm + ' RPM</span></div>';
+    }).join('');
+
+    var battRow = '';
+    if (batt) {
+      battRow = '<div class="metric"><span class="label">Battery</span><span>' +
+        batt.percent.toFixed(0) + '% ' +
+        (batt.plugged ? '(charging)' : '(on battery)') + '</span></div>';
+    }
+
+    cards.push('<div class="card"><h2>Sensors</h2>' +
+      sensorRows + fanRows + battRow + '</div>');
+  }
+
   var netCard =
     '<div class="metric"><span class="label">&darr; Down</span><span>' +
     rate(totalRecv) + '</span></div>' +

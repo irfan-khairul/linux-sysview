@@ -243,3 +243,7 @@ tr.file td:first-child { color: var(--text); }
 .dgroup tr.stopped td { opacity: 0.55; }
 
 .group-btn { border-color: var(--accent); }
+
+/* Temperatures: colour against each sensor's own critical threshold. */
+.temp.warn { color: var(--warn); }
+.temp.crit { color: var(--crit); font-weight: bold; }

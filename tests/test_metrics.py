@@ -2,6 +2,8 @@
 from collections import namedtuple
 from contextlib import ExitStack
 from unittest.mock import patch
+
+import psutil
 import pytest
 from sysview.metrics import collect_resources
 
@@ -55,3 +57,92 @@ def test_missing_getloadavg_is_tolerated(fake_system):
         stack.enter_context(patch("sysview.metrics.psutil.getloadavg", side_effect=OSError))
         r = collect_resources(SNAPSHOT)
     assert r["load_average"]==[0.0,0.0,0.0]
+
+
+# --- sensors -----------------------------------------------------------
+
+shwtemp = namedtuple("shwtemp", "label current high critical")
+sfan = namedtuple("sfan", "label current")
+sbattery = namedtuple("sbattery", "percent secsleft power_plugged")
+
+# Verbatim from a Dell Inspiron 5558 running Linux.
+DELL_TEMPS = {
+    "acpitz": [shwtemp("", 25.0, None, None)],
+    "dell_smm": [
+        shwtemp("CPU", 45.0, None, None),
+        shwtemp("Other", 44.0, None, None),
+        shwtemp("SODIMM", 38.0, None, None),
+        # An unwired sensor on a machine with no discrete GPU.
+        shwtemp("GPU", 2.0, None, None),
+    ],
+    "coretemp": [
+        shwtemp("Package id 0", 54.0, 105.0, 105.0),
+        shwtemp("Core 0", 54.0, 105.0, 105.0),
+        shwtemp("Core 1", 50.0, 105.0, 105.0),
+    ],
+}
+
+# One physical fan, reported four times: once labelled, three times blank.
+DELL_FANS = {"dell_smm": [sfan("Processor Fan", 2200), sfan("", 2200),
+                          sfan("", 2200), sfan("", 2200)]}
+
+
+def test_temperatures_sorted_hottest_first_with_thresholds():
+    with patch.object(psutil, "sensors_temperatures", create=True,
+                      return_value=DELL_TEMPS):
+        temps = collect_resources(SNAPSHOT)["temperatures"]
+
+    assert [t["current"] for t in temps] == sorted(
+        [t["current"] for t in temps], reverse=True)
+    hottest = temps[0]
+    assert hottest["current"] == 54.0
+    assert hottest["critical"] == 105.0
+    # An unlabelled sensor falls back to its chip name.
+    assert any(t["label"] == "acpitz" for t in temps)
+
+
+def test_implausible_temperature_readings_are_dropped():
+    """An unwired sensor reports a value no real component would show."""
+    with patch.object(psutil, "sensors_temperatures", create=True,
+                      return_value=DELL_TEMPS):
+        temps = collect_resources(SNAPSHOT)["temperatures"]
+    assert all(t["label"] != "GPU" for t in temps)
+    assert all(5.0 <= t["current"] <= 150.0 for t in temps)
+
+
+def test_duplicate_fan_entries_collapse_to_one():
+    with patch.object(psutil, "sensors_fans", create=True, return_value=DELL_FANS):
+        fans = collect_resources(SNAPSHOT)["fans"]
+    assert len(fans) == 1
+    assert fans[0]["label"] == "Processor Fan"
+    assert fans[0]["rpm"] == 2200
+
+
+def test_genuinely_distinct_fans_are_both_kept():
+    two = {"dell_smm": [sfan("CPU Fan", 2200), sfan("Chassis Fan", 1500)]}
+    with patch.object(psutil, "sensors_fans", create=True, return_value=two):
+        fans = collect_resources(SNAPSHOT)["fans"]
+    assert [f["label"] for f in fans] == ["CPU Fan", "Chassis Fan"]
+
+
+def test_battery_sentinel_secsleft_becomes_none():
+    # psutil reports POWER_TIME_UNLIMITED as a negative sentinel, not seconds.
+    with patch.object(psutil, "sensors_battery", create=True,
+                      return_value=sbattery(99.2, -2, True)):
+        batt = collect_resources(SNAPSHOT)["battery"]
+    assert batt["percent"] == 99.2
+    assert batt["plugged"] is True
+    assert batt["secsleft"] is None
+
+
+def test_missing_sensor_support_degrades_to_empty():
+    """macOS has no sensors_temperatures/sensors_fans at all."""
+    with patch.object(psutil, "sensors_temperatures", create=True,
+                      side_effect=AttributeError), \
+         patch.object(psutil, "sensors_fans", create=True,
+                      side_effect=OSError), \
+         patch.object(psutil, "sensors_battery", create=True, return_value=None):
+        d = collect_resources(SNAPSHOT)
+    assert d["temperatures"] == []
+    assert d["fans"] == []
+    assert d["battery"] is None
