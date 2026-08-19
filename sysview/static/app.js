@@ -19,7 +19,9 @@ var state = {
   procFilter: '',
   history: [],
   netOpen: false,
-  dockerOpen: {}
+  dockerOpen: {},
+  logId: null,
+  logName: ''
 };
 
 // ---- helpers ----------------------------------------------------------
@@ -316,9 +318,11 @@ function containerRow(c) {
     return '<button type="button" data-id="' + esc(c.id) + '" data-action="' +
       action + '">' + label + '</button>';
   };
-  var actions = running
+  var actions = (running
     ? btn('stop', 'Stop') + ' ' + btn('restart', 'Restart')
-    : btn('start', 'Start');
+    : btn('start', 'Start')) +
+    ' <button type="button" class="logs-btn" data-logs-id="' + esc(c.id) +
+    '" data-logs-name="' + esc(c.service || c.name) + '">Logs</button>';
   // Within a group the service name is the useful label; the container name
   // just repeats the project prefix.
   var label = c.service || c.name;
@@ -363,6 +367,32 @@ function groupBlock(g) {
       '<th class="num">CPU</th><th class="num">Memory</th><th>Ports</th><th>Actions</th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
     '</details>';
+}
+
+function renderLogs(name, payload) {
+  var box = el('log-panel');
+  box.classList.add('open');
+  el('log-title').textContent = name;
+  var body = el('log-body');
+  if (!payload.ok) {
+    body.textContent = payload.error || 'Could not read logs.';
+    return;
+  }
+  var text = payload.lines || '';
+  body.textContent = text || '(no output)';
+  // Jump to the end: the newest lines are what matter when something broke.
+  body.scrollTop = body.scrollHeight;
+}
+
+function loadLogs(id, name) {
+  state.logId = id;
+  state.logName = name;
+  el('log-panel').classList.add('open');
+  el('log-title').textContent = name;
+  el('log-body').textContent = 'Loading...';
+  return get('/api/docker/logs?id=' + encodeURIComponent(id))
+    .then(function (payload) { renderLogs(name, payload); })
+    .catch(function (err) { el('log-body').textContent = err.message; });
 }
 
 function renderDocker(d) {
@@ -544,6 +574,11 @@ el('docker-view').addEventListener('click', function (e) {
   e.preventDefault();
   e.stopPropagation();
 
+  if (btn.dataset.logsId) {
+    loadLogs(btn.dataset.logsId, btn.dataset.logsName);
+    return;
+  }
+
   var host = el('docker-view');
   var buttons = host.querySelectorAll('button');
   Array.prototype.forEach.call(buttons, function (b) { b.disabled = true; });
@@ -575,6 +610,75 @@ el('docker-view').addEventListener('click', function (e) {
       var again = el('docker-view').querySelectorAll('button');
       Array.prototype.forEach.call(again, function (b) { b.disabled = false; });
     });
+});
+
+// Restarting and stopping the server that is serving this page needs care:
+// a stop cannot be undone from the browser, because there is nothing left
+// listening to ask.
+function serverAction(mode) {
+  setStatus(mode === 'restart' ? 'restarting...' : 'stopping...');
+  fetch('/api/server/' + mode, { method: 'POST' })
+    .then(function (r) { return r.json(); })
+    .then(function (res) {
+      if (!res.ok) { setStatus(res.error); return; }
+      if (res.will_restart) { waitForServer(); }
+      else { showServerDown(); }
+    })
+    // The process may exit before the response lands, which is a successful
+    // stop rather than a failure.
+    .catch(function () {
+      if (mode === 'restart') { waitForServer(); } else { showServerDown(); }
+    });
+}
+
+function showServerDown() {
+  setStatus('');
+  document.body.innerHTML =
+    '<div class="server-down"><h1>sysview stopped</h1>' +
+    '<p>The server is no longer running, so it cannot be started from here.</p>' +
+    '<p>On the machine itself: <code>./run.sh start</code></p></div>';
+}
+
+function waitForServer() {
+  var attempts = 0;
+  setStatus('restarting...');
+  var timer = setInterval(function () {
+    attempts += 1;
+    fetch('/api/config', { cache: 'no-store' })
+      .then(function () {
+        clearInterval(timer);
+        window.location.reload();
+      })
+      .catch(function () {
+        if (attempts > 30) {
+          clearInterval(timer);
+          setStatus('restart timed out');
+        }
+      });
+  }, 1000);
+}
+
+el('srv-restart').addEventListener('click', function () {
+  serverAction('restart');
+});
+
+el('srv-stop').addEventListener('click', function () {
+  if (!window.confirm(
+      'Stop sysview?\n\nThis ends the server that is serving this page. ' +
+      'You will not be able to start it again from the browser \u2014 you will ' +
+      'need access to the machine itself (./run.sh start).')) {
+    return;
+  }
+  serverAction('stop');
+});
+
+el('log-refresh').addEventListener('click', function () {
+  if (state.logId) { loadLogs(state.logId, state.logName); }
+});
+
+el('log-close').addEventListener('click', function () {
+  el('log-panel').classList.remove('open');
+  state.logId = null;
 });
 
 // Remember which groups are expanded, or every poll would collapse them.

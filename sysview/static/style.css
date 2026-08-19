@@ -247,3 +247,52 @@ tr.file td:first-child { color: var(--text); }
 /* Temperatures: colour against each sensor's own critical threshold. */
 .temp.warn { color: var(--warn); }
 .temp.crit { color: var(--crit); font-weight: bold; }
+
+/* Container log panel: shown on demand, above the container list. */
+#log-panel { display: none; margin-bottom: 12px; }
+#log-panel.open { display: block; }
+
+.log-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+}
+
+.log-head strong { color: var(--accent); }
+#log-close { margin-left: auto; }
+
+#log-body {
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 340px;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 0 0 6px 6px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Server lifecycle controls: stopping cannot be undone from the browser. */
+button.danger { border-color: var(--crit); color: var(--crit); }
+button.danger:hover:not(:disabled) { background: var(--crit); color: #fff; }
+
+.server-down {
+  max-width: 32rem;
+  margin: 15vh auto;
+  padding: 24px;
+  text-align: center;
+  color: var(--text);
+  font: 14px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.server-down h1 { color: var(--crit); font-size: 18px; }
+.server-down code { color: var(--accent); }

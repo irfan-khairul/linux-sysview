@@ -23,7 +23,7 @@ the server; vanilla JavaScript in the browser.
 - **Docker Processes** — containers grouped by their Compose project, each
   group collapsible with a running count, summed CPU, and Start / Stop /
   Restart for the whole project. Individual containers have the same three
-  actions.
+  actions plus a Logs button showing the last 200 lines.
 - **File Explorer** — click a folder to open it, with an editable path field
   and a back button. View only: files are never opened, downloaded, or
   modified.
@@ -127,6 +127,12 @@ PORT=9000 ./run.sh start
 writes its PID to `.sysview.pid` and output to `sysview.log` (both
 git-ignored), and reports a failure rather than dying quietly.
 
+The header carries Restart and Stop buttons for sysview itself. Restart works
+because `run.sh` supervises the server and relaunches it when it exits asking
+to be restarted; the page waits and reconnects on its own. **Stop asks for
+confirmation, because it cannot be undone from the browser** — nothing is left
+listening, so bringing it back means `./run.sh start` on the machine itself.
+
 To run it from anywhere without the `./`, link it onto your `PATH`:
 
 ```sh
@@ -184,7 +190,7 @@ directory.
 .venv/bin/python -m pytest
 ```
 
-105 tests. Collectors in `sysview/` return plain dictionaries and never touch
+112 tests. Collectors in `sysview/` return plain dictionaries and never touch
 HTTP, so they can be tested without starting a server. The suite mocks `psutil`
 and `subprocess` throughout, which means it passes on macOS as well as Linux —
 but that also means passing tests do not prove the numbers are right on real

@@ -8,6 +8,11 @@ from .sampler import Sampler
 from .server import make_server
 
 
+# run.sh watches for this exit code and relaunches the server. Any other exit
+# means "stay down", so a deliberate stop is not undone by the supervisor.
+RESTART_EXIT_CODE = 42
+
+
 def parse_args(argv):
     parser = argparse.ArgumentParser(
         prog="sysview",

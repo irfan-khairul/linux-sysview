@@ -21,6 +21,22 @@ port=${PORT:-8080}
 pidfile="$dir/.sysview.pid"
 logfile="$dir/sysview.log"
 
+# The server cannot relaunch itself, so this loop does it. Exit code 42 means
+# "restart requested from the UI"; every other exit means stay down, so a
+# deliberate stop or a crash-on-startup is not fought by the supervisor.
+supervise() {
+    while :; do
+        # `set -e` would abort the script the moment the server exits
+        # non-zero, before the code below could inspect why — so the call is
+        # guarded to keep the exit status inspectable.
+        code=0
+        "$python" -m sysview "$@" || code=$?
+        [ "$code" -eq 42 ] || exit "$code"
+        # A moment for the listening socket to be released before rebinding.
+        sleep 1
+    done
+}
+
 require_python() {
     if [ ! -x "$python" ]; then
         echo "No interpreter at $python" >&2
@@ -53,9 +69,9 @@ start)
         exit 1
     fi
     if [ "$#" -gt 0 ]; then
-        nohup "$python" -m sysview "$@" >"$logfile" 2>&1 &
+        nohup "$0" __supervise "$@" >"$logfile" 2>&1 &
     else
-        nohup "$python" -m sysview --port "$port" >"$logfile" 2>&1 &
+        nohup "$0" __supervise --port "$port" >"$logfile" 2>&1 &
     fi
     pid=$!
     echo "$pid" > "$pidfile"
@@ -107,11 +123,18 @@ restart)
     "$0" stop
     "$0" start "$@"
     ;;
+__supervise)
+    # Internal: the supervised loop itself, invoked by `start`.
+    shift
+    require_python
+    supervise "$@"
+    ;;
 *)
     require_python
     if [ "$#" -gt 0 ]; then
-        exec "$python" -m sysview "$@"
+        supervise "$@"
+    else
+        supervise --port "$port"
     fi
-    exec "$python" -m sysview --port "$port"
     ;;
 esac

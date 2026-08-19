@@ -192,3 +192,31 @@ def test_group_route_rejects_a_non_list_body():
 def test_group_route_rejects_a_missing_body():
     status, body = route_post("/api/docker/group/stop", None)
     assert status == 400
+
+
+def test_server_stop_and_restart_report_the_right_intent():
+    with patch("sysview.server.request_shutdown") as shutdown:
+        stop_status, stop_body = route_post("/api/server/stop")
+        restart_status, restart_body = route_post("/api/server/restart")
+
+    assert stop_status == 200 and stop_body["will_restart"] is False
+    assert restart_status == 200 and restart_body["will_restart"] is True
+    assert [c.args[0] for c in shutdown.call_args_list] == ["stop", "restart"]
+
+
+def test_server_route_rejects_an_unknown_mode():
+    with patch("sysview.server.request_shutdown") as shutdown:
+        status, body = route_post("/api/server/explode")
+    assert status == 400
+    assert body["ok"] is False
+    # Nothing should be asked to shut down.
+    shutdown.assert_not_called()
+
+
+def test_logs_route_passes_id_and_line_count():
+    with patch("sysview.server.collect_logs",
+               return_value={"ok": True, "error": "", "lines": "x"}) as m:
+        status, body = route_get("/api/docker/logs",
+                                 {"id": ["abc"], "lines": ["50"]}, FakeSampler())
+    assert status == 200
+    m.assert_called_once_with("abc", "50")

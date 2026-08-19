@@ -134,6 +134,50 @@ def collect_containers():
     return {"available": True, "containers": containers, "error": ""}
 
 
+# A tail long enough to diagnose a crash loop, short enough that the response
+# stays small and the browser can render it without stuttering.
+DEFAULT_LOG_LINES = 200
+MAX_LOG_LINES = 2000
+
+
+def collect_logs(container_id, lines=DEFAULT_LOG_LINES):
+    """Return the last `lines` of a container's logs.
+
+    Reads a bounded tail rather than streaming: the useful question is "what
+    did it say just before it broke", and a fixed read needs no long-lived
+    subprocess per viewer.
+    """
+    if not is_valid_container_id(container_id):
+        return {"ok": False, "error": "Invalid container id", "lines": ""}
+
+    try:
+        count = int(lines)
+    except (TypeError, ValueError):
+        count = DEFAULT_LOG_LINES
+    count = max(1, min(count, MAX_LOG_LINES))
+
+    try:
+        # docker writes container stdout to our stdout and stderr to ours, so
+        # both streams are captured and stitched back together below.
+        result = _run(["docker", "logs", "--tail", str(count), container_id])
+    except FileNotFoundError:
+        return {"ok": False, "error": "Docker is not installed", "lines": ""}
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return {"ok": False, "error": "Docker did not respond: %s" % exc, "lines": ""}
+
+    if result.returncode != 0:
+        return {
+            "ok": False,
+            "error": (result.stderr or "docker logs failed").strip(),
+            "lines": "",
+        }
+
+    # Most images log to stderr, so returning only stdout would show nothing
+    # for a container that is working perfectly well.
+    combined = (result.stdout or "") + (result.stderr or "")
+    return {"ok": True, "error": "", "lines": combined, "requested": count}
+
+
 def run_group_action(container_ids, action):
     """Apply an action to every container in a Compose project.
 

@@ -195,3 +195,67 @@ def test_group_action_reports_partial_failure():
     assert result["ok"] is False
     assert "1 of 3 failed" in result["error"]
     assert [r["ok"] for r in result["results"]] == [True, False, True]
+
+
+def test_collect_logs_rejects_an_invalid_id_before_running_docker():
+    from sysview.docker import collect_logs
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    with patch("sysview.docker.subprocess.run", side_effect=fake_run):
+        result = collect_logs("abc; rm -rf /")
+
+    assert result["ok"] is False
+    assert calls == []
+
+
+def test_collect_logs_clamps_the_line_count():
+    from sysview.docker import MAX_LOG_LINES, collect_logs
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="hello\n", stderr="")
+
+    with patch("sysview.docker.subprocess.run", side_effect=fake_run):
+        collect_logs("abc", lines=10 ** 9)
+        collect_logs("abc", lines="not-a-number")
+        collect_logs("abc", lines=-5)
+
+    tails = [cmd[cmd.index("--tail") + 1] for cmd in calls]
+    assert tails[0] == str(MAX_LOG_LINES)
+    assert int(tails[1]) > 0
+    assert int(tails[2]) >= 1
+
+
+def test_collect_logs_combines_stdout_and_stderr():
+    """Most images log to stderr; returning only stdout would show nothing."""
+    from sysview.docker import collect_logs
+
+    def fake_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 0, stdout="out-line\n",
+                                           stderr="err-line\n")
+
+    with patch("sysview.docker.subprocess.run", side_effect=fake_run):
+        result = collect_logs("abc")
+
+    assert result["ok"] is True
+    assert "out-line" in result["lines"]
+    assert "err-line" in result["lines"]
+
+
+def test_collect_logs_reports_a_docker_failure():
+    from sysview.docker import collect_logs
+
+    def fake_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 1, stdout="",
+                                           stderr="No such container: abc")
+
+    with patch("sysview.docker.subprocess.run", side_effect=fake_run):
+        result = collect_logs("abc")
+
+    assert result["ok"] is False
+    assert "No such container" in result["error"]

@@ -9,13 +9,17 @@ import json
 import os
 import posixpath
 import sys
+import threading
+import time
 import traceback
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from .docker import (
+    DEFAULT_LOG_LINES,
     VALID_ACTIONS,
     collect_containers,
+    collect_logs,
     is_valid_container_id,
     run_action,
     run_group_action,
@@ -49,11 +53,39 @@ def route_get(path, query, sampler, ui_interval=DEFAULT_UI_INTERVAL):
     if path == "/api/files":
         requested = query.get("path", ["/"])[0] or "/"
         return 200, list_directory(requested)
+    if path == "/api/docker/logs":
+        # Logs are read-only, so this is a GET even though it names a
+        # specific container.
+        return 200, collect_logs(
+            query.get("id", [""])[0],
+            query.get("lines", [str(DEFAULT_LOG_LINES)])[0],
+        )
     if path == "/api/history":
         return 200, {"points": sampler.history()}
     if path == "/api/config":
         return 200, {"interval": ui_interval}
     return 404, {"error": "Unknown endpoint: %s" % path}
+
+
+def request_shutdown(mode, httpd=None):
+    """Ask the process to exit, optionally signalling a restart.
+
+    The server cannot restart itself: whatever supervises it decides whether
+    to come back. Exiting with RESTART_EXIT_CODE is that signal, and run.sh
+    relaunches on it.
+    """
+    from . import __main__ as entry
+
+    code = entry.RESTART_EXIT_CODE if mode == "restart" else 0
+
+    def _exit():
+        # Give the HTTP response time to reach the browser before the process
+        # goes away, or the click looks like it failed.
+        time.sleep(0.4)
+        os._exit(code)
+
+    threading.Thread(target=_exit, daemon=True).start()
+    return code
 
 
 def route_post(path, body=None):
@@ -78,6 +110,19 @@ def route_post(path, body=None):
             return 400, {"ok": False, "error": "Invalid container id"}
         result = run_action(container_id, action)
         return (200 if result["ok"] else 500), result
+    # Expected shape: api / server / <stop|restart>
+    if len(parts) == 3 and parts[:2] == ["api", "server"]:
+        mode = parts[2]
+        if mode not in ("stop", "restart"):
+            return 400, {"ok": False, "error": "Unsupported action: %s" % mode}
+        request_shutdown(mode)
+        return 200, {
+            "ok": True,
+            "error": "",
+            "mode": mode,
+            # The browser uses this to decide whether to wait and reconnect.
+            "will_restart": mode == "restart",
+        }
     return 404, {"ok": False, "error": "Unknown endpoint: %s" % path}
 
 

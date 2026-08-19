@@ -27,6 +27,8 @@
       </select>
     </label>
     <span id="status"></span>
+    <button id="srv-restart" type="button" title="Restart sysview">Restart</button>
+    <button id="srv-stop" type="button" class="danger" title="Stop sysview">Stop</button>
   </div>
 </header>
 
@@ -40,6 +42,14 @@
     <div class="table-wrap"><table id="proc-table"></table></div>
   </section>
   <section id="view-docker" class="view">
+    <div id="log-panel">
+      <div class="log-head">
+        <strong id="log-title"></strong>
+        <button id="log-refresh" type="button">Refresh</button>
+        <button id="log-close" type="button">Close</button>
+      </div>
+      <pre id="log-body"></pre>
+    </div>
     <div id="docker-view"></div>
   </section>
   <section id="view-files" class="view">
