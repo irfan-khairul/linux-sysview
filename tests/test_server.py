@@ -163,3 +163,13 @@ def test_collector_exception_is_still_logged_to_stderr():
         with patch("sys.stderr", new_callable=io.StringIO) as fake_stderr:
             handler.do_GET()
     assert "collector exploded" in fake_stderr.getvalue()
+
+
+def test_history_route_returns_points():
+    class HistSampler(FakeSampler):
+        def history(self):
+            return [{"t": 1.0, "cpu": 10.0, "mem": 50.0}]
+
+    status, body = route_get("/api/history", {}, HistSampler())
+    assert status == 200
+    assert body["points"][0]["cpu"] == 10.0

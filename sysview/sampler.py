@@ -1,5 +1,6 @@
 """Background sampling of counter-based system metrics."""
 
+import collections
 import copy
 import threading
 import time
@@ -41,10 +42,17 @@ class Sampler:
     rate independent of sampling cost.
     """
 
-    def __init__(self, interval=1.0):
+    # Roughly five minutes of history at the default one-second tick. Kept in
+    # memory only: the question this answers is "did something spike a moment
+    # ago", not "what did last Tuesday look like", so persistence would buy
+    # little for a large jump in complexity. Measured at ~155 KB.
+    HISTORY_LEN = 300
+
+    def __init__(self, interval=1.0, history_len=HISTORY_LEN):
         self.interval = interval
         self._lock = threading.Lock()
         self._snapshot = _empty_snapshot()
+        self._history = collections.deque(maxlen=history_len)
         self._prev_net = None
         self._prev_disk = None
         self._prev_time = None
@@ -66,6 +74,15 @@ class Sampler:
     def snapshot(self):
         with self._lock:
             return copy.deepcopy(self._snapshot)
+
+    def history(self):
+        """Return the recorded history, oldest first.
+
+        Like snapshot(), this returns a copy so a caller cannot mutate the
+        sampler's state through the result.
+        """
+        with self._lock:
+            return list(self._history)
 
     def _run(self):
         # Prime cpu_percent so the first real reading is a delta, not a
@@ -124,6 +141,24 @@ class Sampler:
                 ),
             }
 
+        # Only the aggregate numbers are kept for history: per-core detail and
+        # per-interface breakdowns would multiply the memory cost for a chart
+        # too small to show them.
+        try:
+            mem_percent = psutil.virtual_memory().percent
+        except Exception:
+            mem_percent = 0.0
+
+        point = {
+            "t": now,
+            "cpu": round(total, 1),
+            "mem": round(mem_percent, 1),
+            "net_sent": round(sum(n["sent_rate"] for n in net.values()), 1),
+            "net_recv": round(sum(n["recv_rate"] for n in net.values()), 1),
+            "disk_read": round(disk_io["read_rate"], 1),
+            "disk_write": round(disk_io["write_rate"], 1),
+        }
+
         with self._lock:
             self._snapshot = {
                 "cpu_percent": round(total, 1),
@@ -132,6 +167,7 @@ class Sampler:
                 "disk_io": disk_io,
                 "timestamp": now,
             }
+            self._history.append(point)
         self._prev_net = cur_net
         self._prev_disk = cur_disk
         self._prev_time = now

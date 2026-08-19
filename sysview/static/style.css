@@ -157,3 +157,43 @@ tr.file td:first-child { color: var(--text); }
 
 .error { color: var(--crit); margin-bottom: 10px; min-height: 20px; }
 .empty { padding: 16px; color: var(--muted); }
+
+/* Sparklines: last few minutes of history, drawn as a plain SVG polyline. */
+.spark {
+  display: block;
+  width: 100%;
+  height: 28px;
+  margin: 2px 0 6px;
+  background: var(--bar);
+  border-radius: 4px;
+}
+
+.spark polyline {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.spark-label {
+  color: var(--muted);
+  font-size: 11px;
+  margin: -4px 0 6px;
+}
+
+/* Interface breakdown: collapsed by default, since a Docker host has dozens of
+   veth interfaces that are almost always idle. */
+.iface-details { margin-top: 8px; }
+
+.iface-details summary {
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 0;
+  user-select: none;
+}
+
+.iface-details summary:hover { color: var(--text); }
+
+/* Idle interfaces stay visible but recede, so an active one stands out. */
+.iface-details .metric.idle { opacity: 0.45; }

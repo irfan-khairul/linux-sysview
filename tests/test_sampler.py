@@ -158,3 +158,62 @@ def test_start_is_idempotent_and_stop_is_a_safe_no_op():
     # stop() called twice must not raise.
     s.stop()
     assert s._thread is None
+
+
+def test_history_is_empty_before_sampling():
+    s = Sampler()
+    assert s.history() == []
+
+
+def test_history_records_a_point_per_sample():
+    s = Sampler(interval=0.01)
+    with patch("sysview.sampler.time.monotonic", side_effect=[1.0, 2.0, 3.0]), \
+         patch("sysview.sampler.psutil.net_io_counters", return_value={}), \
+         patch("sysview.sampler.psutil.cpu_percent", return_value=[20.0, 40.0]), \
+         patch("sysview.sampler.psutil.disk_io_counters", return_value=None):
+        s.sample_once()
+        s.sample_once()
+
+    points = s.history()
+    assert len(points) == 2
+    assert points[-1]["cpu"] == 30.0
+    for key in ("t", "cpu", "mem", "net_sent", "net_recv", "disk_read", "disk_write"):
+        assert key in points[-1]
+
+
+def test_history_is_bounded_and_keeps_the_newest():
+    s = Sampler(interval=0.01, history_len=3)
+    with patch("sysview.sampler.psutil.net_io_counters", return_value={}), \
+         patch("sysview.sampler.psutil.disk_io_counters", return_value=None):
+        for i in range(6):
+            with patch("sysview.sampler.time.monotonic", return_value=float(i)), \
+                 patch("sysview.sampler.psutil.cpu_percent", return_value=[float(i)]):
+                s.sample_once()
+
+    points = s.history()
+    # Oldest entries are evicted, so memory cannot grow without bound.
+    assert len(points) == 3
+    assert [p["cpu"] for p in points] == [3.0, 4.0, 5.0]
+
+
+def test_history_returns_a_copy():
+    s = Sampler(interval=0.01)
+    with patch("sysview.sampler.time.monotonic", return_value=1.0), \
+         patch("sysview.sampler.psutil.net_io_counters", return_value={}), \
+         patch("sysview.sampler.psutil.cpu_percent", return_value=[5.0]), \
+         patch("sysview.sampler.psutil.disk_io_counters", return_value=None):
+        s.sample_once()
+    got = s.history()
+    got.clear()
+    assert len(s.history()) == 1
+
+
+def test_memory_read_failure_does_not_break_sampling():
+    s = Sampler(interval=0.01)
+    with patch("sysview.sampler.time.monotonic", return_value=1.0), \
+         patch("sysview.sampler.psutil.net_io_counters", return_value={}), \
+         patch("sysview.sampler.psutil.cpu_percent", return_value=[5.0]), \
+         patch("sysview.sampler.psutil.disk_io_counters", return_value=None), \
+         patch("sysview.sampler.psutil.virtual_memory", side_effect=RuntimeError):
+        s.sample_once()
+    assert s.history()[-1]["mem"] == 0.0

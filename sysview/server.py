@@ -43,6 +43,8 @@ def route_get(path, query, sampler, ui_interval=DEFAULT_UI_INTERVAL):
     if path == "/api/files":
         requested = query.get("path", ["/"])[0] or "/"
         return 200, list_directory(requested)
+    if path == "/api/history":
+        return 200, {"points": sampler.history()}
     if path == "/api/config":
         return 200, {"interval": ui_interval}
     return 404, {"error": "Unknown endpoint: %s" % path}

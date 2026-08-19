@@ -16,7 +16,9 @@ var state = {
   filesPath: '/',
   filesParent: null,
   procSort: { key: 'cpu_percent', desc: true },
-  procFilter: ''
+  procFilter: '',
+  history: [],
+  netOpen: false
 };
 
 // ---- helpers ----------------------------------------------------------
@@ -29,7 +31,9 @@ function bytes(n) {
   var i = 0;
   var v = n;
   while (v >= 1024 && i < units.length - 1) { v /= 1024; i += 1; }
-  return (i === 0 ? v : v.toFixed(1)) + units[i];
+  // Raw byte counts are whole numbers; scaled units keep one decimal. Without
+  // rounding here a rate like 359.51867316465695 would print in full.
+  return (i === 0 ? Math.round(v) : v.toFixed(1)) + units[i];
 }
 
 function rate(n) { return bytes(n) + '/s'; }
@@ -61,6 +65,29 @@ function bar(pct) {
   return '<div class="bar' + severity(p) + '"><span style="width:' + p + '%"></span></div>';
 }
 
+// A sparkline is just a polyline over a normalised series. Scaling to the
+// series' own max (with a floor) keeps a quiet line flat instead of amplifying
+// noise into a dramatic-looking graph.
+function sparkline(values, opts) {
+  var o = opts || {};
+  if (!values || values.length < 2) { return ''; }
+  var w = o.width || 160;
+  var h = o.height || 28;
+  var max = o.max;
+  if (max === undefined) {
+    max = Math.max.apply(null, values);
+    if (!isFinite(max) || max <= 0) { max = 1; }
+  }
+  var step = w / (values.length - 1);
+  var points = values.map(function (v, i) {
+    var y = h - Math.max(0, Math.min(1, v / max)) * (h - 2) - 1;
+    return (i * step).toFixed(1) + ',' + y.toFixed(1);
+  }).join(' ');
+  return '<svg class="spark" viewBox="0 0 ' + w + ' ' + h + '" ' +
+    'preserveAspectRatio="none" aria-hidden="true">' +
+    '<polyline points="' + points + '"/></svg>';
+}
+
 function esc(s) {
   return String(s === null || s === undefined ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -84,10 +111,14 @@ function renderResources(d) {
   var cores = (d.cpu.per_core || []).map(function (v, i) {
     return '<div class="core">cpu' + i + ' ' + v.toFixed(0) + '%' + bar(v) + '</div>';
   }).join('');
+  var hist = state.history;
   cards.push(
     '<div class="card"><h2>CPU</h2>' +
     '<div class="metric"><span class="label">Total (' + d.cpu.count + ' cores)</span><span>' +
     d.cpu.percent.toFixed(1) + '%</span></div>' + bar(d.cpu.percent) +
+    // Percentages get a fixed 0-100 scale so the line height always means the
+    // same thing between refreshes.
+    sparkline(hist.map(function (h) { return h.cpu; }), { max: 100 }) +
     '<div class="cores">' + cores + '</div></div>'
   );
 
@@ -100,7 +131,8 @@ function renderResources(d) {
     bytes(d.memory.available) + '</span></div>' +
     '<div class="metric"><span class="label">Swap</span><span>' +
     bytes(d.swap.used) + ' / ' + bytes(d.swap.total) + '</span></div>' +
-    bar(d.swap.percent) + '</div>'
+    bar(d.swap.percent) +
+    sparkline(hist.map(function (h) { return h.mem; }), { max: 100 }) + '</div>'
   );
 
   var la = d.load_average;
@@ -123,12 +155,43 @@ function renderResources(d) {
   }).join('') || '<div class="empty">No disks reported</div>';
   cards.push('<div class="card"><h2>Disks</h2>' + disks + '</div>');
 
-  var nets = Object.keys(d.network || {}).sort().map(function (name) {
+  // A busy Docker host has dozens of veth interfaces that are almost always
+  // idle, so lead with the graph and the totals and put the per-interface
+  // breakdown behind a toggle.
+  var ifaces = Object.keys(d.network || {}).sort();
+  var active = ifaces.filter(function (name) {
     var n = d.network[name];
-    return '<div class="metric"><span class="label">' + esc(name) + '</span><span>&uarr; ' +
+    return n.sent_rate > 0 || n.recv_rate > 0;
+  });
+
+  var totalSent = ifaces.reduce(function (a, n) { return a + d.network[n].sent_rate; }, 0);
+  var totalRecv = ifaces.reduce(function (a, n) { return a + d.network[n].recv_rate; }, 0);
+
+  var recv = hist.map(function (h) { return h.net_recv; });
+  var sent = hist.map(function (h) { return h.net_sent; });
+  var peak = Math.max(1, Math.max.apply(null, recv.concat(sent).concat([0])));
+
+  var rows = ifaces.map(function (name) {
+    var n = d.network[name];
+    var idle = n.sent_rate === 0 && n.recv_rate === 0;
+    return '<div class="metric' + (idle ? ' idle' : '') + '">' +
+      '<span class="label">' + esc(name) + '</span><span>&uarr; ' +
       rate(n.sent_rate) + ' &darr; ' + rate(n.recv_rate) + '</span></div>';
   }).join('') || '<div class="empty">No interfaces</div>';
-  cards.push('<div class="card"><h2>Network</h2>' + nets + '</div>');
+
+  var netCard =
+    '<div class="metric"><span class="label">&darr; Down</span><span>' +
+    rate(totalRecv) + '</span></div>' +
+    (hist.length > 1 ? sparkline(recv, { max: peak }) : '') +
+    '<div class="metric"><span class="label">&uarr; Up</span><span>' +
+    rate(totalSent) + '</span></div>' +
+    (hist.length > 1 ? sparkline(sent, { max: peak }) : '') +
+    (hist.length > 1 ? '<div class="spark-label">peak ' + rate(peak) + '</div>' : '') +
+    '<details class="iface-details"' + (state.netOpen ? ' open' : '') + '>' +
+    '<summary>' + ifaces.length + ' interfaces, ' + active.length +
+    ' active</summary>' + rows + '</details>';
+
+  cards.push('<div class="card"><h2>Network</h2>' + netCard + '</div>');
 
   el('view-resources').innerHTML = '<div class="cards">' + cards.join('') + '</div>';
 }
@@ -244,7 +307,15 @@ function renderFiles(d) {
 // ---- polling ---------------------------------------------------------
 
 var LOADERS = {
-  resources: function () { return get('/api/resources').then(renderResources); },
+  resources: function () {
+    // History and current values are fetched together so the sparklines and
+    // the numbers beside them always describe the same moment.
+    return Promise.all([get('/api/resources'), get('/api/history')])
+      .then(function (both) {
+        state.history = (both[1] && both[1].points) || [];
+        renderResources(both[0]);
+      });
+  },
   processes: function () {
     var s = state.procSort;
     var url = '/api/processes?sort=' + encodeURIComponent(s.key) +
@@ -342,6 +413,14 @@ el('proc-filter').addEventListener('input', function (e) {
   state.procFilter = e.target.value;
   refresh();
 });
+
+// The card is re-rendered on every poll, so remember whether the interface
+// list was expanded or it would slam shut a moment after being opened.
+el('view-resources').addEventListener('toggle', function (e) {
+  if (e.target.classList.contains('iface-details')) {
+    state.netOpen = e.target.open;
+  }
+}, true);
 
 el('proc-table').addEventListener('click', function (e) {
   var th = e.target.closest('th');
