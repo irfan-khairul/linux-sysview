@@ -45,7 +45,9 @@
   <section id="view-files" class="view">
     <div class="toolbar">
       <button id="files-back" type="button">Back</button>
-      <span id="files-path" class="breadcrumb"></span>
+      <input id="files-path" class="breadcrumb" type="text" spellcheck="false"
+             autocapitalize="off" autocorrect="off"
+             aria-label="Current path — edit and press Enter to go there">
     </div>
     <div id="files-error" class="error"></div>
     <div class="table-wrap"><table id="files-table"></table></div>

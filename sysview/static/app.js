@@ -227,7 +227,10 @@ function renderFiles(d) {
 
   state.filesPath = d.path;
   state.filesParent = d.parent;
-  el('files-path').textContent = d.path;
+  // Do not clobber the path while the user is typing into it.
+  if (document.activeElement !== el('files-path')) {
+    el('files-path').value = d.path;
+  }
   el('files-back').disabled = !d.parent;
 
   var head = '<thead><tr><th>Name</th><th class="num">Size</th>' +
@@ -371,11 +374,20 @@ el('docker-table').addEventListener('click', function (e) {
     });
 });
 
-el('files-table').addEventListener('dblclick', function (e) {
+el('files-table').addEventListener('click', function (e) {
   var tr = e.target.closest('tr');
   if (!tr || tr.dataset.dir !== '1') { return; }
   var base = state.filesPath === '/' ? '' : state.filesPath;
   state.filesPath = base + '/' + tr.dataset.name;
+  refresh();
+});
+
+el('files-path').addEventListener('keydown', function (e) {
+  if (e.key !== 'Enter') { return; }
+  var typed = e.target.value.trim();
+  if (!typed) { return; }
+  state.filesPath = typed;
+  e.target.blur();
   refresh();
 });
 

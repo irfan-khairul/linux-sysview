@@ -116,8 +116,23 @@ main { padding: 16px; }
 
 .toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 #proc-filter { min-width: 240px; }
-#proc-count, .breadcrumb { color: var(--muted); font-size: 12px; }
-.breadcrumb { word-break: break-all; }
+#proc-count { color: var(--muted); font-size: 12px; }
+
+/* The path is an editable field: type a path, press Enter to go there. */
+.breadcrumb {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.breadcrumb:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Rows are single-click to open, so show a pointer over directories. */
+tr.file { cursor: default; }
 
 .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; }
 
