@@ -303,41 +303,6 @@ button.danger:hover:not(:disabled) { background: var(--crit); color: #fff; }
 .server-down h1 { color: var(--crit); font-size: 18px; }
 .server-down code { color: var(--accent); }
 
-/* Loading bar: shown while switching views, since the new view cannot render
-   until its fetch lands. Deliberately not shown for background polls — a bar
-   flickering every two seconds reads as a fault rather than progress. */
-body::before {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  height: 2px;
-  width: 100%;
-  background: var(--accent);
-  transform: scaleX(0);
-  transform-origin: left;
-  opacity: 0;
-  z-index: 50;
-  pointer-events: none;
-}
-
-body.loading::before {
-  opacity: 1;
-  animation: loading-sweep 0.9s ease-out infinite;
-}
-
-@keyframes loading-sweep {
-  0%   { transform: scaleX(0);    transform-origin: left; }
-  60%  { transform: scaleX(1);    transform-origin: left; }
-  61%  { transform: scaleX(1);    transform-origin: right; }
-  100% { transform: scaleX(0);    transform-origin: right; }
-}
-
-/* Respect a reduced-motion preference: keep the cue, drop the movement. */
-@media (prefers-reduced-motion: reduce) {
-  body.loading::before { animation: none; transform: scaleX(1); }
-}
-
 /* ---- Narrow screens ------------------------------------------------- */
 
 @media (max-width: 700px) {

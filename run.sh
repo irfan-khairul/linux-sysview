@@ -46,6 +46,50 @@ require_python() {
     fi
 }
 
+# Echoes the working directory of a process, or nothing if it cannot be read.
+# /proc is the Linux route; lsof covers macOS, where it may be absent.
+process_cwd() {
+    if [ -r "/proc/$1/cwd" ]; then
+        readlink "/proc/$1/cwd" 2>/dev/null
+    elif command -v lsof >/dev/null 2>&1; then
+        lsof -a -d cwd -p "$1" -Fn 2>/dev/null | sed -n 's/^n//p' | head -1
+    fi
+}
+
+# Echoes every sysview PID belonging to THIS checkout, one per line.
+#
+# The PID file alone is not enough: a process started before the file existed,
+# or superseded by a later start, keeps running while `stop` reports success.
+# Scoping by working directory rather than by the command line matters because
+# the command line holds only the interpreter path and "-m sysview" — nothing
+# identifying the repo — so a blind pattern kill would take out sysview
+# instances belonging to other checkouts.
+stray_pids() {
+    self=$$
+    pgrep -f "m sysview" 2>/dev/null | while read -r pid; do
+        [ "$pid" = "$self" ] && continue
+        cwd=$(process_cwd "$pid")
+        # With no readable cwd, leave it alone rather than risk killing
+        # something that is not ours.
+        [ "$cwd" = "$dir" ] && echo "$pid"
+    done
+}
+
+# Ends one process, escalating to SIGKILL only if it ignores SIGTERM.
+terminate() {
+    kill "$1" 2>/dev/null || true
+    i=0
+    while [ "$i" -lt 50 ] && kill -0 "$1" 2>/dev/null; do
+        sleep 0.1
+        i=$((i + 1))
+    done
+    if kill -0 "$1" 2>/dev/null; then
+        kill -9 "$1" 2>/dev/null || true
+        return 1
+    fi
+    return 0
+}
+
 # Echoes the PID if a live process is recorded, otherwise nothing.
 running_pid() {
     [ -f "$pidfile" ] || return 0
@@ -88,25 +132,35 @@ start)
     fi
     ;;
 stop)
-    pid=$(running_pid)
-    if [ -z "$pid" ]; then
-        echo "Not running."
-        exit 0
-    fi
-    kill "$pid" 2>/dev/null || true
-    # Wait up to ~5s for a clean shutdown before forcing it.
-    i=0
-    while [ "$i" -lt 50 ] && kill -0 "$pid" 2>/dev/null; do
-        sleep 0.1
-        i=$((i + 1))
-    done
-    if kill -0 "$pid" 2>/dev/null; then
-        kill -9 "$pid" 2>/dev/null || true
-        echo "Force-stopped (pid $pid)."
-    else
-        echo "Stopped (pid $pid)."
-    fi
+    forced=0
+
+    # Anything belonging to this checkout, whether or not the pid file knows
+    # about it. The supervisor is killed here too, so it cannot relaunch the
+    # server on the way out.
+    targets=$(stray_pids)
+    tracked=$(running_pid)
+    case " $targets " in
+        *" $tracked "*) ;;
+        *) [ -n "$tracked" ] && targets="$targets $tracked" ;;
+    esac
     rm -f "$pidfile"
+
+    stopped=0
+    for pid in $targets; do
+        terminate "$pid" || forced=$((forced + 1))
+        stopped=$((stopped + 1))
+    done
+
+    # The count includes the supervisor shell alongside the server(s) it
+    # watches, so it is normally one higher than the number of listening
+    # servers. Saying so avoids it reading like a miscount.
+    if [ "$stopped" -eq 0 ]; then
+        echo "Not running."
+    elif [ "$forced" -gt 0 ]; then
+        echo "Stopped. $stopped process(es) ended, $forced needed SIGKILL."
+    else
+        echo "Stopped. $stopped process(es) ended (server plus supervisor)."
+    fi
     ;;
 status)
     pid=$(running_pid)
