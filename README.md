@@ -40,14 +40,24 @@ pip install -r requirements.txt
 Run on the Linux machine you want to monitor:
 
 ```sh
-./run.sh                               # easiest: binds 0.0.0.0:8090
+./run.sh                               # foreground, binds 0.0.0.0:8080
+./run.sh start                         # background, survives logout
+./run.sh stop                          # stop the background instance
+./run.sh status                        # running? on which port?
+./run.sh restart                       # stop, then start
+
 ./run.sh --port 9000                   # any flag below is passed through
-PORT=9000 ./run.sh                     # or set the port via the environment
+./run.sh start --port 9000             # ...including to start
+PORT=9000 ./run.sh start               # or set the port via the environment
 ```
 
-`run.sh` just calls this repo's `.venv` interpreter, so you do not have to
-activate the virtualenv or remember the module path. To use a different
-interpreter, set `SYSVIEW_PYTHON`.
+`run.sh` calls this repo's `.venv` interpreter, so you do not have to activate
+the virtualenv or remember the module path. To use a different interpreter, set
+`SYSVIEW_PYTHON`.
+
+`start` detaches with `nohup`, records the PID in `.sysview.pid`, and writes
+output to `sysview.log`. If the port is already taken, `start` says so and exits
+non-zero rather than failing silently. Both files are git-ignored.
 
 Or invoke the module directly:
 
@@ -57,8 +67,7 @@ python -m sysview --port 9000          # different port
 python -m sysview --host 127.0.0.1     # localhost only (see Security)
 ```
 
-Then open `http://<linux-box-ip>:8090` in your browser (or `:8080` if you ran
-the module directly without a `--port`).
+Then open `http://<linux-box-ip>:8080` in your browser.
 
 | Flag | Default | Description |
 |---|---|---|
